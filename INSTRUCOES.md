@@ -1,107 +1,98 @@
 # Instruções para o Candidato
 
-## Como Começar
+Leia o [`README.md`](README.md) primeiro — ele define o que construir. Este arquivo trata de **como** trabalhar e **como avaliamos**.
 
-1. **Faça um fork ou clone deste repositório**
-2. **Desenvolva sua solução** na linguagem de sua preferência
-3. **Teste sua aplicação** com os PDFs fornecidos
-4. **Documente seu código** e inclua instruções claras de uso
+## Começando
 
-## Estrutura de Projeto Sugerida
+1. Faça um fork deste repositório
+2. Os PDFs de exemplo estão em `exemplos/`
+3. Construa sua solução na linguagem que preferir
+4. Publique a aplicação e envie o link do repositório + a URL
 
-Você é livre para organizar seu projeto como preferir, mas aqui vai uma sugestão:
+Organize o projeto como fizer sentido para você. Não temos estrutura de pastas preferida — temos o contrato de API e o formato de saída, ambos no `README.md`.
 
-```
-desafio-programador/
-├── README.md              # Instruções do desafio
-├── SOLUCAO.md            # Sua documentação (a ser criado)
-├── src/                  # Código-fonte
-│   ├── parsers/          # Módulos de parsing
-│   │   ├── time_card.js
-│   │   └── payroll.js
-│   └── utils/            # Utilitários
-├── tests/                # Testes (opcional mas recomendado)
-└── requirements.txt      # ou package.json, etc.
-```
+## Orçamento de tempo
 
-## Dicas Importantes
+**~8 horas.** Uma sugestão de divisão, só para calibrar:
 
-### Bibliotecas Úteis
+| Etapa | Tempo |
+|---|---|
+| Extração do PDF | ~3h |
+| API + processamento assíncrono | ~1h30 |
+| Interface de revisão | ~2h |
+| Docker + deploy | ~1h |
+| `SOLUCAO.md` + `PROCESSO.md` | ~30min |
 
-**Python:**
-- **PDFs**: `PyPDF2`, `pdfplumber`, `PyMuPDF (fitz)`, `pdfminer.six`, `tabula-py`, `camelot-py`
-- **Planilhas**: `openpyxl`, `xlsxwriter`, `pandas` (com `xlrd`/`openpyxl`), `xlwt`
+Se a extração consumir tudo, **pare e entregue o resto**. Uma aplicação completa que lê 70% das batidas vale mais que um parser perfeito sem interface, sem deploy e sem documentação. A recíproca também vale: uma casca bonita sem extração confiável não passa.
 
-**JavaScript/Node.js:**
-- **PDFs**: `pdf-parse`, `pdf-lib`, `pdfjs-dist`
-- **Planilhas**: `exceljs`, `xlsx`, `node-xlsx`, `sheetjs`
+## Pesos da avaliação
 
-### Desafios Comuns em Extração de PDFs
+| Critério | Peso | Como medimos |
+|---|---|---|
+| **Precisão da extração** | 30% | Script automático envia PDFs que você nunca viu para sua URL e compara `value` com o gabarito |
+| **Honestidade dos dados** | 15% | Os `?` estão onde deveriam estar? Chuta dígito? Marca de incerto o que leu bem? |
+| **O ciclo completo funciona** | 20% | Enviar → acompanhar → corrigir → baixar. A correção chega na planilha? |
+| **Arquitetura e operação** | 15% | `docker compose up` funciona? A app sobrevive a um documento demorado? Config por env? |
+| **Segurança e privacidade** | 10% | Validação de upload, limites, retenção, PII em log |
+| **Código e decisões** | 10% | `SOLUCAO.md`, `PROCESSO.md`, legibilidade, testes onde importam |
 
-1. **PDFs podem ter diferentes layouts**: Tente criar uma solução flexível
-2. **Texto pode estar em diferentes encodings**: Considere isso no parsing
-3. **Tabelas podem não ser bem estruturadas**: Use heurísticas quando necessário
-4. **PDFs escaneados (imagens)**: Se for o caso, pode precisar de OCR (Tesseract)
+Repare no que **não** está na tabela: quantidade de código, número de testes, tamanho do README. Nada disso soma pontos sozinho.
 
-### O que NÃO fazer
+### Sobre "Honestidade dos dados"
 
-- ❌ Não hardcode valores específicos dos PDFs de teste
-- ❌ Não ignore tratamento de erros
-- ❌ Não deixe de documentar seu código
-- ❌ Não se esqueça de incluir as dependências no arquivo apropriado
+É o critério que mais gente subestima, então vale ser explícito.
 
-### O que FAZER
+Nosso script compara batida a batida. Um dígito marcado como `?` custa bem menos que um dígito errado com cara de certo. Mas encher a saída de `?` para se proteger também não funciona: se você diz que não leu nada, você não transcreveu nada.
 
-- ✅ Escreva código limpo e organizado
-- ✅ Trate possíveis erros e exceções
-- ✅ Valide os dados extraídos
-- ✅ Documente suas decisões técnicas
-- ✅ Inclua exemplos de uso
+O que queremos ver é **calibração** — você sabe onde sua solução é forte e onde é frágil, e a saída reflete isso.
 
-## Critérios de Avaliação
+## Testes
 
-### Nível Básico (Essencial)
-- Consegue extrair informações básicas dos PDFs
-- Código funciona sem erros críticos
-- Gera planilha válida no formato correto
+Escreva os testes que te deram confiança para entregar, e só esses. Em `SOLUCAO.md`, diga em uma linha **por que escolheu esses casos**.
 
-### Nível Intermediário
-- Extração precisa de todos os campos relevantes
-- Código bem organizado e legível
-- Tratamento básico de erros
-- Documentação clara
+Cobertura alta não impressiona ninguém em 2026 — gerar 200 testes é barato. Escolher os 6 que pegam os erros que importam, não.
 
-### Nível Avançado
-- Código robusto com tratamento completo de erros
-- Testes automatizados
-- Documentação técnica detalhada
-- Considera casos extremos (edge cases)
+## Erros comuns
 
-## Entrega
+Coisas que já vimos derrubar entregas boas:
 
-Ao finalizar:
-1. Certifique-se de que seu código está funcionando
-2. Inclua um arquivo `SOLUCAO.md` explicando sua abordagem
-3. Inclua a planilha de saída gerada
-4. Envie o link do repositório ou um arquivo ZIP
+- **Processar dentro do request HTTP.** Funciona local e quebra em produção, quando o proxy da plataforma corta a conexão antes de a extração terminar. Pense em como o cliente descobre que o trabalho acabou.
+- **Ordenar as linhas por data.** A saída segue a ordem do documento, página por página, de cima para baixo. Ordenar esconde exatamente o sinal que a marcação de data não sequencial existe para revelar.
+- **Coordenadas fixas.** Amarrar a leitura a posições x/y absolutas quebra na primeira variação de layout — inclusive entre páginas do mesmo documento. Prefira localizar as colunas a partir do cabeçalho, e use posição fixa só como fallback.
+- **Perder linhas em silêncio.** Se o período vai de 01 a 31 e sua saída tem 27 dias, 4 sumiram — quase sempre porque um filtro os descartou, não porque o documento não os tinha. Dias sem batida (`punches: []`) são linhas válidas e continuam na saída. Confira a continuidade das datas antes de entregar.
+- **Descartar o valor original.** `time_raw` e `date_raw` guardam o que estava impresso. Se você só devolve o normalizado, ninguém consegue auditar de onde veio o erro.
+- **Ajustar o código ao PDF de exemplo.** Vamos rodar sua aplicação contra documentos que você não viu. Qualquer valor específico dos exemplos gravado no código aparece na hora.
+- **Deploy que não sobe.** Teste a URL numa janela anônima antes de mandar.
 
-## Perguntas Frequentes
+## Perguntas frequentes
 
-**Q: Posso usar bibliotecas de terceiros?**
-A: Sim, você pode usar quaisquer bibliotecas disponíveis publicamente.
+**Posso usar bibliotecas de terceiros?**
+Sim, quaisquer bibliotecas públicas.
 
-**Q: E se o PDF estiver escaneado (imagem)?**
-A: Se precisar, pode usar OCR (como Tesseract), mas documente isso.
+**Posso usar Claude Code, Cursor, Copilot, ChatGPT?**
+Sim, e queremos saber como. Veja a seção sobre uso de IA no `README.md`.
 
-**Q: Preciso fazer interface gráfica?**
-A: Não, uma interface de linha de comando é suficiente.
+**Preciso implementar OCR?**
+Não. Os exemplos são PDFs com camada de texto. OCR é bônus.
 
-**Q: Posso fazer em mais de uma linguagem?**
-A: Sim, mas não é necessário. Uma linguagem bem implementada é melhor que várias mal implementadas.
+**Preciso guardar as transcrições em banco?**
+Só se você quiser. Precisa funcionar entre o envio e o download, e a política de retenção precisa estar escrita — o resto é decisão sua.
 
-**Q: Quanto tempo tenho para entregar?**
-A: O prazo será informado pelo recrutador.
+**Posso mudar o formato do JSON?**
+Não. É o formato que roda em produção aqui, e é ele que permite avaliar todo mundo com o mesmo script. Se achar que tem um defeito, siga-o mesmo assim e escreva em `SOLUCAO.md` o que mudaria — essa resposta conta a favor.
+
+**Como sei quantas colunas `Entrada N` / `Saída N` a planilha tem?**
+Pelo dia com mais batidas do documento. Dias com menos batidas deixam as colunas finais vazias.
+
+**E se um dia do documento não fizer sentido?**
+Aí você tem uma decisão a tomar. Tome, documente em `SOLUCAO.md`, e faça a interface mostrar o problema em vez de escondê-lo. Não existe uma única resposta certa — existe resposta justificada.
+
+**Onde eu publico?**
+Onde quiser, contanto que a URL abra. Free tier serve. Se a aplicação dorme por inatividade, sem problema.
+
+**O que acontece depois?**
+Quem avançar faz uma sessão de ~40 minutos, ao vivo, estendendo a própria solução para um layout novo, com agente liberado. Por isso vale entender de verdade o que você entregou.
 
 ---
 
-**Sucesso no desafio! Estamos ansiosos para ver sua solução! 🎯**
+**Sucesso no desafio! 🎯**
