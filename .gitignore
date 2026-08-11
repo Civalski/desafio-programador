@@ -1,17 +1,8 @@
-# Arquivos de teste (serão fornecidos separadamente)
-*.pdf
-modelo_planilha.*
-modelo.*
+# Saídas geradas pela aplicação
+output/
 
-# Arquivos de saída (podem ser recriados)
-output/*.xlsx
-output/*.xls
-output/*.ods
-output/*.csv
-resultado.*
-*.xlsx
-*.xls
-*.ods
+# Ferramentas internas de correção (não publicar)
+avaliacao/
 
 # Dependências
 node_modules/
@@ -30,3 +21,9 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
+# Ambiente
+.env
+.env.local
+
+# NOTA: os PDFs de `exemplos/` e as planilhas entregues devem ser
+# versionados. Não adicione `*.pdf` / `*.xlsx` aqui.

@@ -1,9 +1,11 @@
 {
   "name": "desafio-programador",
-  "version": "1.0.0",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Desafio técnico da Quick Filler: transcrição de cartões de ponto e holerites em PDF para planilha, com aplicação web publicada",
+  "engines": {
+    "node": ">=22"
   },
   "repository": {
     "type": "git",
@@ -14,6 +16,5 @@
   "bugs": {
     "url": "https://github.com/quick-filler/desafio-programador/issues"
   },
-  "homepage": "https://github.com/quick-filler/desafio-programador#readme",
-  "description": "Desafio técnico para programadores - Quick Filler: Extração de dados de PDFs (cartão de ponto e holerite) com geração de planilha estruturada"
+  "homepage": "https://github.com/quick-filler/desafio-programador#readme"
 }
