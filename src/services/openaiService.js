@@ -40,10 +40,10 @@ export class OpenAIService {
   }
 
   /**
-   * Executa chamada com fallback de modelos (gpt-5-nano -> gpt-4o-mini -> gpt-4o)
+   * Executa chamada com fallback de modelos (gpt-4o-mini -> gpt-4o)
    */
   async generateCompletionWithFallback(messages, options = {}) {
-    const models = ['gpt-5-nano', 'gpt-4o-mini', 'gpt-4o'];
+    const models = ['gpt-4o-mini', 'gpt-4o'];
     let lastError;
 
     for (const model of models) {
@@ -53,11 +53,9 @@ export class OpenAIService {
           model,
           messages,
           response_format: { type: 'json_object' },
+          temperature: 0.1,
           ...options
         };
-        if (!model.includes('gpt-5') && !model.includes('nano') && !model.startsWith('o')) {
-          requestParams.temperature = 0.1;
-        }
 
         const response = await this.client.chat.completions.create(requestParams);
         return response.choices[0]?.message?.content || '{}';
@@ -70,7 +68,7 @@ export class OpenAIService {
   }
 
   /**
-   * Extrai o conteúdo em texto bruto por páginas de um PDF
+   * Extrai o conteúdo preservando colunas espaciais e tabelas paralelas de um PDF
    */
   async extractPdfTextPages(filePath) {
     const data = await new Promise((resolve, reject) => {
@@ -94,7 +92,17 @@ export class OpenAIService {
       const sortedY = Array.from(linesMap.keys()).sort((a, b) => a - b);
       const textLines = sortedY.map(y => {
         const lineItems = linesMap.get(y).sort((a, b) => a.x - b.x);
-        return lineItems.map(i => i.str).join(' ');
+        let lineStr = '';
+        for (let i = 0; i < lineItems.length; i++) {
+          if (i > 0) {
+            const prev = lineItems[i - 1];
+            const curr = lineItems[i];
+            const gap = curr.x - (prev.x + (prev.width || 0));
+            lineStr += gap > 15 ? '  |  ' : ' ';
+          }
+          lineStr += lineItems[i].str;
+        }
+        return lineStr;
       });
 
       return `--- PÁGINA ${pageNum} ---\n` + textLines.join('\n');
@@ -115,14 +123,18 @@ export class OpenAIService {
           const rawPdfText = await this.extractPdfTextPages(filePath);
 
           const systemPrompt = `Você é um especialista em OCR e estruturação de documentos contábeis/RH brasileiros (Holerites / Folhas de Pagamento).
-Sua tarefa é analisar o texto extraído de um documento PDF de Folha de Pagamento e retornar um JSON estritamente válido.
+O texto recebido contém colunas de tabelas separadas visualmente por '  |  '.
+IMPORTANTE: Existem verbas em colunas paralelas (Proventos à esquerda e Descontos à direita). Você DEVE extrair TODAS as verbas (de ambas as colunas) para cada mês/competência.
 
 REGRAS CRÍTICAS DE EXTRAÇÃO:
-1. "reference": deve conter EXCLUSIVAMENTE quantidades, horas, dias ou percentuais (ex: "30,00", "146,67", "0,00", "50%"). NUNCA coloque valores monetários em R$ em "reference".
-2. "value": deve conter o valor monetário líquido em R$ (vencimento/provento ou desconto).
-3. "month" e "year": extraia a competência exata (Mês "MM" de 2 dígitos e Ano "YYYY" de 4 dígitos). Se houver holerites de meses diferentes no PDF, separe em elementos distintos no array "pages".
-4. REGRA FUNDAMENTAL DE EVIDÊNCIA DOCUMENTAL: Extraia APENAS as competências (mês/ano) efetivamente presentes no texto do PDF. NUNCA crie, preencha ou infira meses ou anos ausentes para tentar completar uma sequência anual.
-5. DATAS DE ADMISSÃO, EMISSÃO E PAGAMENTO: Datas de Admissão (ex: 15/03/2018), Emissão ou Pagamento NÃO são a competência do holerite. A competência é exclusivamente a referência da folha (Mês/Ano, Competência, Período, Ref).
+1. "fields": Array com TODAS as verbas encontradas (Proventos e Descontos). Cada item deve ter:
+   - "code": código numérico da verba (ex: "40", "499", "511", "91").
+   - "label": nome/descrição da verba (ex: "Reembolso VR", "Vale Ref Func", "INSS Normal").
+   - "reference": quantidade, horas, dias ou percentuais (ex: "30,00", "146,67", "0,00"). NUNCA coloque valores monetários em R$ em reference.
+   - "value": valor monetário em R$ da verba (ex: "360,00", "36,00", "100,85").
+2. "bases": Totais e bases (ex: Base INSS, Base IRRF, Base FGTS, Valor FGTS, Salário Líquido).
+3. "month" e "year": competência exata (Mês "MM" de 2 dígitos e Ano "YYYY" de 4 dígitos). Se houver holerites de meses diferentes, separe em objetos distintos no array "pages".
+4. REGRA DE EVIDÊNCIA: Extraia APENAS o que consta no documento. NUNCA invente ou infira meses ausentes.
 
 FORMATO JSON DE SAÍDA EXIGIDO:
 {
@@ -132,7 +144,8 @@ FORMATO JSON DE SAÍDA EXIGIDO:
       "month": "05",
       "year": "2024",
       "fields": [
-        { "code": "40", "label": "Reembolso VR", "reference": "0,00", "value": "360,00" }
+        { "code": "40", "label": "Reembolso VR", "reference": "0,00", "value": "360,00" },
+        { "code": "499", "label": "Vale Ref Func", "reference": "0", "value": "36,00" }
       ],
       "bases": [
         { "label": "Base INSS", "value": "2.630,79" }
