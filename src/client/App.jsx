@@ -42,7 +42,7 @@ export default function App() {
     return () => clearInterval(interval);
   }, [jobId, jobStatus]);
 
-  const handleUpload = async (file, documentType) => {
+  const handleUpload = async (file, documentType, enableAudit = false) => {
     setUploadedFile(file);
     setTipo(documentType);
     setJobStatus('processando');
@@ -53,6 +53,9 @@ export default function App() {
       const formData = new FormData();
       formData.append('arquivo', file);
       formData.append('tipo', documentType);
+      if (enableAudit) {
+        formData.append('audit', 'true');
+      }
 
       const res = await fetch('/api/transcricoes', {
         method: 'POST',
@@ -100,17 +103,16 @@ export default function App() {
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
       <header className="app-header">
         <div className="app-brand">
-          <span style={{ fontSize: '1.8rem' }}>🚀</span>
           <div>
-            <div className="app-logo">Quick Filler Scanner</div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-              Transcrição de Holerites & Cartões de Ponto em PDF
+            <div className="app-logo">QUICK FILLER</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-subtle)', fontWeight: 400, marginTop: '2px' }}>
+              Transcrição & Auditoria de Holerites e Cartões de Ponto
             </div>
           </div>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <span className="badge-mock">⚡ Gemini AI Active</span>
+          <span className="badge-mock">Gemini AI Pipeline</span>
         </div>
       </header>
 
@@ -121,18 +123,18 @@ export default function App() {
 
         {jobStatus === 'processando' && (
           <div className="upload-card">
-            <div className="spinner" style={{ width: '48px', height: '48px', marginBottom: '1rem' }}></div>
-            <h2>Processando Transcrição...</h2>
-            <p style={{ color: 'var(--text-muted)', marginTop: '0.5rem' }}>
-              Enviado via pipeline assíncrono. Aguarde a leitura dos dados...
+            <div className="spinner" style={{ width: '40px', height: '40px', marginBottom: '1.25rem' }}></div>
+            <h2 style={{ fontSize: '1.15rem', fontWeight: 600 }}>Processando Transcrição...</h2>
+            <p style={{ color: 'var(--text-muted)', marginTop: '0.5rem', fontSize: '0.875rem' }}>
+              Extraindo dados com modelo Gemini AI. Por favor, aguarde...
             </p>
           </div>
         )}
 
         {jobStatus === 'erro' && (
-          <div className="upload-card" style={{ borderColor: '#f87171' }}>
-            <h2 style={{ color: '#f87171' }}>❌ Erro na Transcrição</h2>
-            <p style={{ color: 'var(--text-muted)', margin: '1rem 0' }}>{errorMessage}</p>
+          <div className="upload-card">
+            <h2 style={{ fontSize: '1.15rem', fontWeight: 600, color: 'var(--text-main)' }}>Erro na Transcrição</h2>
+            <p style={{ color: 'var(--text-muted)', margin: '1rem 0', fontSize: '0.875rem' }}>{errorMessage}</p>
             <button className="btn-secondary" onClick={handleReset}>Tentar Novamente</button>
           </div>
         )}

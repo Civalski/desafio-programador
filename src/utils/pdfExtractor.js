@@ -73,14 +73,23 @@ export async function extractPayrollLocalPdf(filePath) {
       }
 
       // 2. Extração de Verbas (Código, Nome, Referência, Valor)
-      // Exemplo em payroll-01.pdf: "40 Reembolso VR 0,00 360,00" ou "91 Hr Adic Pericul 146,67 290,92"
-      const verbaRegex = /\b(\d{1,4})\s+([A-Za-zÀ-ÿ0-9%/\-\.\s\(\)]+?)\s+([\d\.,%]+)?\s*(-?[\d\.,]+)(?=\s+\d{1,4}|\s+BASE|\s+VALOR|\s+TOT|\s*$)/g;
+      // Exemplo A: "40 Reembolso VR 0,00 360,00" -> ref: 0,00, val: 360,00
+      // Exemplo B: "40 Reembolso VR 360,00" -> ref: "", val: 360,00
+      const verbaRegex = /\b(\d{1,4})\s+([A-Za-zÀ-ÿ0-9%/\-\.\s\(\)]+?)\s+([\d\.,%]+)(?:\s+(-?[\d\.,]+))?(?=\s+\d{1,4}|\s+BASE|\s+VALOR|\s+TOT|\s*$)/g;
       let vMatch;
       while ((vMatch = verbaRegex.exec(lineStr)) !== null) {
         const code = vMatch[1].trim();
         const label = vMatch[2].trim();
-        const reference = vMatch[3] ? vMatch[3].trim() : '';
-        const value = vMatch[4].trim();
+        let reference = '';
+        let value = '';
+
+        if (vMatch[4] !== undefined) {
+          reference = vMatch[3].trim();
+          value = vMatch[4].trim();
+        } else {
+          reference = '';
+          value = vMatch[3].trim();
+        }
 
         // Evita cabeçalhos e termos genéricos
         if (code.match(/^(REM|DIAS|COD|TOT)$/i) || label.match(/^(DIAS|HORAS|REMUNERAÇÃO|BASE|VALOR|TOTAL)/i)) continue;

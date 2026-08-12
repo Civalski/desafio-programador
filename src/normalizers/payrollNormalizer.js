@@ -48,14 +48,23 @@ export function normalizePayrollResponse(rawData) {
       if (isBaseItem) {
         bases.push({
           label,
-          value
+          value: value || formatMoneyString(item.reference || '')
         });
       } else {
+        let reference = String(item.reference || item.ref || '').trim();
+        let finalValue = value;
+
+        // Se o valor estiver vazio mas a referência contiver o valor monetário
+        if (!finalValue && reference) {
+          finalValue = formatMoneyString(reference);
+          reference = '';
+        }
+
         fields.push({
           code: String(item.code || '').trim(),
           label,
-          reference: String(item.reference || item.ref || '').trim(),
-          value
+          reference,
+          value: finalValue
         });
       }
     });

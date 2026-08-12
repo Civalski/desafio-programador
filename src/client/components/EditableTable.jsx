@@ -5,9 +5,9 @@ export function EditableTable({ data, tipo, onChangeData }) {
     return (
       <div className="panel">
         <div className="panel-header">
-          <div className="panel-title">✏️ Transcrição Extraída</div>
+          <div className="panel-title">Transcrição Extraída</div>
         </div>
-        <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+        <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.875rem' }}>
           Nenhum dado extraído disponível.
         </div>
       </div>
@@ -41,20 +41,22 @@ export function EditableTable({ data, tipo, onChangeData }) {
     return (
       <div className="panel">
         <div className="panel-header">
-          <div className="panel-title">🧾 Revisor de Holerite (Payroll)</div>
-          <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+          <div className="panel-title">Revisor de Holerite (Payroll)</div>
+          <span style={{ fontSize: '0.8rem', color: 'var(--text-subtle)', fontWeight: 500 }}>
             Competência: {page.month || 'MM'}/{page.year || 'YYYY'}
           </span>
         </div>
 
         <div className="table-container">
-          <h4 style={{ marginBottom: '0.75rem', color: '#60a5fa' }}>Verbas e Vencimentos / Descontos</h4>
+          <h4 style={{ marginBottom: '0.75rem', color: 'var(--text-main)', fontSize: '0.85rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+            Verbas e Vencimentos / Descontos
+          </h4>
           <table className="data-table">
             <thead>
               <tr>
                 <th style={{ width: '80px' }}>Código</th>
                 <th>Descrição / Verba</th>
-                <th style={{ width: '100px' }}>Referência</th>
+                <th style={{ width: '100px' }}>Ref.</th>
                 <th style={{ width: '120px' }}>Valor (R$)</th>
               </tr>
             </thead>
@@ -97,7 +99,9 @@ export function EditableTable({ data, tipo, onChangeData }) {
             </tbody>
           </table>
 
-          <h4 style={{ margin: '1.5rem 0 0.75rem 0', color: '#a78bfa' }}>Bases, Totais e Valor Líquido</h4>
+          <h4 style={{ margin: '1.5rem 0 0.75rem 0', color: 'var(--text-main)', fontSize: '0.85rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+            Bases, Totais e Valor Líquido
+          </h4>
           <table className="data-table">
             <thead>
               <tr>
@@ -113,7 +117,7 @@ export function EditableTable({ data, tipo, onChangeData }) {
                       className="input-cell"
                       value={base.label || ''} 
                       onChange={(e) => handleBaseChange(idx, 'label', e.target.value)}
-                      style={{ fontWeight: base.label?.toLowerCase().includes('líquido') ? 'bold' : 'normal' }}
+                      style={{ fontWeight: base.label?.toLowerCase().includes('líquido') ? 600 : 400 }}
                     />
                   </td>
                   <td>
@@ -121,7 +125,7 @@ export function EditableTable({ data, tipo, onChangeData }) {
                       className="input-cell"
                       value={base.value || ''} 
                       onChange={(e) => handleBaseChange(idx, 'value', e.target.value)}
-                      style={{ fontWeight: base.label?.toLowerCase().includes('líquido') ? 'bold' : 'normal' }}
+                      style={{ fontWeight: base.label?.toLowerCase().includes('líquido') ? 600 : 400 }}
                     />
                   </td>
                 </tr>
@@ -162,8 +166,8 @@ export function EditableTable({ data, tipo, onChangeData }) {
   return (
     <div className="panel">
       <div className="panel-header">
-        <div className="panel-title">⏱️ Revisor de Cartão de Ponto</div>
-        <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+        <div className="panel-title">Revisor de Cartão de Ponto</div>
+        <span style={{ fontSize: '0.8rem', color: 'var(--text-subtle)', fontWeight: 500 }}>
           {days.length} Dias Mapeados
         </span>
       </div>
@@ -172,9 +176,9 @@ export function EditableTable({ data, tipo, onChangeData }) {
         <table className="data-table">
           <thead>
             <tr>
-              <th style={{ width: '120px' }}>Data</th>
+              <th style={{ width: '110px' }}>Data</th>
               <th>Batidas de Ponto (Entradas / Saídas)</th>
-              <th style={{ width: '140px' }}>Status / Alertas</th>
+              <th style={{ width: '130px' }}>Status</th>
             </tr>
           </thead>
           <tbody>
@@ -184,14 +188,14 @@ export function EditableTable({ data, tipo, onChangeData }) {
               const hasUncertainty = day.date_raw?.includes('?') || punches.some(p => p.time_hhmm?.includes('?'));
 
               let rowClass = '';
-              let alertText = '✅ OK';
+              let alertText = 'OK';
 
               if (isOdd) {
                 rowClass = 'row-danger';
-                alertText = '⚠️ Batida Ímpar!';
+                alertText = 'Batida Ímpar';
               } else if (hasUncertainty) {
                 rowClass = 'row-warning';
-                alertText = '🔍 Incerteza (?)';
+                alertText = 'Incerteza (?)';
               }
 
               return (
@@ -206,13 +210,13 @@ export function EditableTable({ data, tipo, onChangeData }) {
                   <td>
                     <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                       {punches.map((punch, pIdx) => (
-                        <div key={`p-${pIdx}`} style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
-                          <span style={{ fontSize: '0.75rem', fontWeight: 600, color: punch.kind === 'IN' ? '#34d399' : '#f87171' }}>
+                        <div key={`p-${pIdx}`} style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                          <span style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-muted)' }}>
                             {punch.kind || (pIdx % 2 === 0 ? 'IN' : 'OUT')}:
                           </span>
                           <input 
                             className="input-cell"
-                            style={{ width: '70px', textCenter: 'center' }}
+                            style={{ width: '65px', textAlign: 'center' }}
                             value={punch.time_hhmm || punch.time_raw || ''} 
                             onChange={(e) => handlePunchChange(dIdx, pIdx, e.target.value)}
                           />
@@ -221,7 +225,7 @@ export function EditableTable({ data, tipo, onChangeData }) {
                     </div>
                   </td>
                   <td>
-                    <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>{alertText}</span>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.03em' }}>{alertText}</span>
                   </td>
                 </tr>
               );

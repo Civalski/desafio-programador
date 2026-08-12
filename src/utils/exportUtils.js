@@ -35,17 +35,55 @@ export function exportToCsv(job) {
       }
     }
   } else if (tipo === 'holerite') {
-    rows.push(['Página', 'Categoria', 'Código', 'Descrição', 'Referência', 'Valor'].join(','));
+    const verbaKeys = [];
+    const baseKeys = [];
+
+    for (const page of pages) {
+      for (const item of (page.fields || [])) {
+        const label = (item.label || item.description || '').trim();
+        if (label && !verbaKeys.includes(label)) {
+          verbaKeys.push(label);
+        }
+      }
+      for (const item of (page.bases || [])) {
+        const label = (item.label || item.description || '').trim();
+        if (label && !baseKeys.includes(label)) {
+          baseKeys.push(label);
+        }
+      }
+    }
+
+    const allKeys = [...verbaKeys, ...baseKeys];
+    const headers = ['Página', 'Competência', ...allKeys];
+    rows.push(headers.map(h => `"${String(h).replace(/"/g, '""')}"`).join(','));
+
     for (const page of pages) {
       const pageNum = page.page || 1;
-      const fields = page.fields || [];
-      for (const item of fields) {
-        rows.push([pageNum, 'VERBA', `"${item.code || ''}"`, `"${item.label || item.description || ''}"`, `"${item.reference || ''}"`, `"${item.value || ''}"`].join(','));
+      const comp = (page.month && page.year) ? `${page.month}/${page.year}` : '';
+
+      const fieldMap = {};
+      for (const item of (page.fields || [])) {
+        const label = (item.label || item.description || '').trim();
+        if (label) fieldMap[label] = item.value || '';
       }
-      const bases = page.bases || [];
-      for (const item of bases) {
-        rows.push([pageNum, 'BASE/TOTAL', `"${item.code || ''}"`, `"${item.label || item.description || ''}"`, `"${item.reference || ''}"`, `"${item.value || ''}"`].join(','));
+
+      const baseMap = {};
+      for (const item of (page.bases || [])) {
+        const label = (item.label || item.description || '').trim();
+        if (label) baseMap[label] = item.value || '';
       }
+
+      const rowValues = [pageNum, `"${comp}"`];
+      for (const key of verbaKeys) {
+        const val = fieldMap[key] || '';
+        rowValues.push(`"${String(val).replace(/"/g, '""')}"`);
+      }
+      for (const key of baseKeys) {
+        const val = baseMap[key] || '';
+        rowValues.push(`"${String(val).replace(/"/g, '""')}"`);
+      }
+
+      rows.push(rowValues.join(','));
     }
   }
 
@@ -120,39 +158,69 @@ export async function generateExport(job, format = 'xlsx') {
       }
     }
   } else if (job.tipo === 'holerite') {
-    worksheet.columns = [
+    const verbaKeys = [];
+    const baseKeys = [];
+
+    for (const page of pages) {
+      for (const item of (page.fields || [])) {
+        const label = (item.label || item.description || '').trim();
+        if (label && !verbaKeys.includes(label)) {
+          verbaKeys.push(label);
+        }
+      }
+      for (const item of (page.bases || [])) {
+        const label = (item.label || item.description || '').trim();
+        if (label && !baseKeys.includes(label)) {
+          baseKeys.push(label);
+        }
+      }
+    }
+
+    const columns = [
       { header: 'Página', key: 'page', width: 10 },
-      { header: 'Categoria', key: 'category', width: 15 },
-      { header: 'Código', key: 'code', width: 12 },
-      { header: 'Descrição / Verba', key: 'label', width: 32 },
-      { header: 'Referência', key: 'reference', width: 15 },
-      { header: 'Valor (R$)', key: 'value', width: 18 },
+      { header: 'Competência', key: 'competencia', width: 14 }
     ];
+
+    verbaKeys.forEach((key, idx) => {
+      columns.push({ header: key, key: `v_${idx}`, width: Math.max(key.length + 4, 16) });
+    });
+
+    baseKeys.forEach((key, idx) => {
+      columns.push({ header: key, key: `b_${idx}`, width: Math.max(key.length + 4, 16) });
+    });
+
+    worksheet.columns = columns;
 
     for (const page of pages) {
       const pageNum = page.page || 1;
-      const fields = page.fields || [];
-      for (const item of fields) {
-        worksheet.addRow({
-          page: pageNum,
-          category: 'VERBA',
-          code: item.code || '',
-          label: item.label || item.description || '',
-          reference: item.reference || '',
-          value: item.value || '',
-        });
+      const comp = (page.month && page.year) ? `${page.month}/${page.year}` : '';
+
+      const fieldMap = {};
+      for (const item of (page.fields || [])) {
+        const label = (item.label || item.description || '').trim();
+        if (label) fieldMap[label] = item.value || '';
       }
-      const bases = page.bases || [];
-      for (const item of bases) {
-        worksheet.addRow({
-          page: pageNum,
-          category: 'BASE/TOTAL',
-          code: item.code || '',
-          label: item.label || item.description || '',
-          reference: item.reference || '',
-          value: item.value || '',
-        });
+
+      const baseMap = {};
+      for (const item of (page.bases || [])) {
+        const label = (item.label || item.description || '').trim();
+        if (label) baseMap[label] = item.value || '';
       }
+
+      const rowObj = {
+        page: pageNum,
+        competencia: comp
+      };
+
+      verbaKeys.forEach((key, idx) => {
+        rowObj[`v_${idx}`] = fieldMap[key] || '';
+      });
+
+      baseKeys.forEach((key, idx) => {
+        rowObj[`b_${idx}`] = baseMap[key] || '';
+      });
+
+      worksheet.addRow(rowObj);
     }
   }
 

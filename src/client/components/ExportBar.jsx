@@ -10,9 +10,9 @@ export function ExportBar({ jobId, onSave, onReset }) {
     setMessage('');
     try {
       await onSave();
-      setMessage('✅ Alterações salvas com sucesso!');
+      setMessage('Alterações salvas com sucesso.');
     } catch (err) {
-      setMessage(`❌ Erro ao salvar: ${err.message}`);
+      setMessage(`Erro ao salvar: ${err.message}`);
     } finally {
       setIsSaving(false);
     }
@@ -25,21 +25,21 @@ export function ExportBar({ jobId, onSave, onReset }) {
   };
 
   return (
-    <div className="action-bar" style={{ borderRadius: '12px', marginTop: '1rem' }}>
+    <div className="action-bar" style={{ marginTop: '1rem' }}>
       <button className="btn-secondary" onClick={onReset}>
-        🔄 Novo Documento
+        Novo Documento
       </button>
 
-      {message && <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>{message}</span>}
+      {message && <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 500 }}>{message}</span>}
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Formato:</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+          <span style={{ fontSize: '0.8rem', color: 'var(--text-subtle)' }}>Formato:</span>
           <select 
             value={formato} 
             onChange={(e) => setFormato(e.target.value)}
             className="input-cell"
-            style={{ width: '90px' }}
+            style={{ width: '85px', height: '34px', padding: '0 0.4rem' }}
           >
             <option value="xlsx">.xlsx</option>
             <option value="csv">.csv</option>
@@ -52,11 +52,11 @@ export function ExportBar({ jobId, onSave, onReset }) {
           onClick={handleSaveClick}
           disabled={isSaving}
         >
-          {isSaving ? 'Gravando...' : '💾 Salvar Correções'}
+          {isSaving ? 'Salvando...' : 'Salvar Alterações'}
         </button>
 
         <button className="btn-success" onClick={handleDownload}>
-          📥 Baixar Planilha
+          Baixar Planilha
         </button>
       </div>
     </div>

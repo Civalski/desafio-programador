@@ -27,6 +27,7 @@ export async function transcriptionRoutes(fastify) {
     let fileBuffer = null;
     let fileName = 'upload.pdf';
     let tipo = null;
+    let enableAudit = false;
 
     for await (const part of parts) {
       if (part.type === 'file') {
@@ -37,6 +38,8 @@ export async function transcriptionRoutes(fastify) {
       } else if (part.type === 'field') {
         if (part.fieldname === 'tipo') {
           tipo = part.value;
+        } else if (part.fieldname === 'audit' || part.fieldname === 'enableAudit') {
+          enableAudit = part.value === 'true' || part.value === true;
         }
       }
     }
@@ -66,7 +69,7 @@ export async function transcriptionRoutes(fastify) {
     setImmediate(async () => {
       try {
         const docTypeMapping = tipo === 'cartao-ponto' ? 'time_card' : 'payroll';
-        const parsedResult = await geminiService.parseDocument(tempFilePath, docTypeMapping);
+        const parsedResult = await geminiService.parseDocument(tempFilePath, docTypeMapping, { enableAudit });
 
         // Se o resultado for válido, conclui o job
         transcriptionStore.completeJob(job.id, parsedResult);

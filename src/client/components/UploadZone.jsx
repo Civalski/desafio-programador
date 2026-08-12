@@ -6,6 +6,8 @@ export function UploadZone({ onUpload, isProcessing }) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [error, setError] = useState('');
 
+  const [enableAudit, setEnableAudit] = useState(false);
+
   const handleFileChange = (e) => {
     const file = e.target.files?.[0];
     validateAndSetFile(file);
@@ -35,7 +37,7 @@ export function UploadZone({ onUpload, isProcessing }) {
       setError('Selecione um arquivo PDF para continuar.');
       return;
     }
-    onUpload(selectedFile, tipo);
+    onUpload(selectedFile, tipo, enableAudit);
   };
 
   return (
@@ -44,12 +46,14 @@ export function UploadZone({ onUpload, isProcessing }) {
       onDragLeave={() => setIsDragOver(false)}
       onDrop={handleDrop}
     >
-      <h2>📁 Selecionar Documento para Transcrição</h2>
-      <p style={{ color: 'var(--text-muted)', marginTop: '0.5rem' }}>
-        Arraste e solte seu arquivo PDF aqui ou clique para procurar no seu computador.
+      <h2 style={{ fontSize: '1.25rem', fontWeight: 600, letterSpacing: '-0.01em' }}>
+        Selecionar Documento para Transcrição
+      </h2>
+      <p style={{ color: 'var(--text-muted)', marginTop: '0.4rem', fontSize: '0.875rem' }}>
+        Arraste seu arquivo PDF até aqui ou clique para selecionar no seu computador.
       </p>
 
-      <form onSubmit={handleSubmit} style={{ marginTop: '1.5rem' }}>
+      <form onSubmit={handleSubmit} style={{ marginTop: '1.5rem', maxWidth: '560px', margin: '1.5rem auto 0 auto' }}>
         <input 
           type="file" 
           id="pdf-input" 
@@ -58,48 +62,81 @@ export function UploadZone({ onUpload, isProcessing }) {
           style={{ display: 'none' }} 
         />
         
-        <label htmlFor="pdf-input" className="btn-secondary" style={{ display: 'inline-block', cursor: 'pointer', marginBottom: '1rem' }}>
-          {selectedFile ? `📄 ${selectedFile.name}` : '🔍 Escolher Arquivo PDF'}
+        <label htmlFor="pdf-input" className="btn-secondary" style={{ display: 'inline-block', cursor: 'pointer', marginBottom: '1.25rem' }}>
+          {selectedFile ? `📄 ${selectedFile.name}` : 'Escolher Arquivo PDF'}
         </label>
 
-        <div className="type-selector">
-          <label className={`radio-btn ${tipo === 'cartao-ponto' ? 'selected' : ''}`}>
-            <input 
-              type="radio" 
-              name="tipo" 
-              value="cartao-ponto" 
-              checked={tipo === 'cartao-ponto'} 
-              onChange={() => setTipo('cartao-ponto')} 
-            />
-            ⏱️ Cartão de Ponto
-          </label>
+        <div>
+          <div className="segmented-control">
+            <label className={`radio-btn ${tipo === 'cartao-ponto' ? 'selected' : ''}`}>
+              <input 
+                type="radio" 
+                name="tipo" 
+                value="cartao-ponto" 
+                checked={tipo === 'cartao-ponto'} 
+                onChange={() => setTipo('cartao-ponto')} 
+              />
+              Cartão de Ponto
+            </label>
 
-          <label className={`radio-btn ${tipo === 'holerite' ? 'selected' : ''}`}>
-            <input 
-              type="radio" 
-              name="tipo" 
-              value="holerite" 
-              checked={tipo === 'holerite'} 
-              onChange={() => setTipo('holerite')} 
-            />
-            🧾 Holerite (Payroll)
-          </label>
+            <label className={`radio-btn ${tipo === 'holerite' ? 'selected' : ''}`}>
+              <input 
+                type="radio" 
+                name="tipo" 
+                value="holerite" 
+                checked={tipo === 'holerite'} 
+                onChange={() => setTipo('holerite')} 
+              />
+              Holerite (Payroll)
+            </label>
+          </div>
         </div>
 
-        {error && <p style={{ color: '#f87171', marginTop: '0.5rem', fontWeight: 500 }}>⚠️ {error}</p>}
+        {/* Minimalist Monochrome Toggle Card for Audit Activation */}
+        <div 
+          className={`audit-toggle-card ${enableAudit ? 'active' : ''}`}
+          onClick={() => setEnableAudit(!enableAudit)}
+        >
+          <div className="audit-toggle-info">
+            <div className="audit-toggle-header">
+              <span className="audit-toggle-title">Auditoria Adicional (Stage 3)</span>
+              <span className={`audit-badge ${enableAudit ? 'active' : ''}`}>
+                {enableAudit ? 'ATIVADA' : 'OPCIONAL'}
+              </span>
+            </div>
+            <p className="audit-toggle-desc">
+              Validação cruzada com modelo adicional Gemini. Aumenta a precisão e a confiabilidade.
+            </p>
+          </div>
+
+          <div className={`toggle-switch ${enableAudit ? 'checked' : ''}`}>
+            <div className="toggle-switch-thumb"></div>
+          </div>
+        </div>
+
+        {error && (
+          <p style={{ color: '#991b1b', marginTop: '0.75rem', fontSize: '0.85rem', background: '#fef2f2', border: '1px solid #fecaca', padding: '0.5rem', borderRadius: '6px' }}>
+            {error}
+          </p>
+        )}
 
         <button 
           type="submit" 
           className="btn-upload" 
           disabled={isProcessing || !selectedFile}
-          style={{ opacity: isProcessing || !selectedFile ? 0.6 : 1, marginTop: '1rem' }}
+          style={{ 
+            opacity: isProcessing || !selectedFile ? 0.4 : 1, 
+            marginTop: '1.25rem',
+            width: '100%',
+            cursor: isProcessing || !selectedFile ? 'not-allowed' : 'pointer'
+          }}
         >
           {isProcessing ? (
             <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', justifyContent: 'center' }}>
               <span className="spinner"></span> Processando Transcrição...
             </span>
           ) : (
-            '🚀 Transcrever Documento'
+            'Transcrever Documento'
           )}
         </button>
       </form>
