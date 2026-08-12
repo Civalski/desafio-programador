@@ -1,5 +1,7 @@
 # Saídas geradas pela aplicação
 output/
+dist/
+tmp/
 
 # Ferramentas internas de correção (não publicar)
 avaliacao/

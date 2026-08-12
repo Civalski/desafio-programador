@@ -1,7 +1,10 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
+import fastifyStatic from '@fastify/static';
 import dotenv from 'dotenv';
+import path from 'node:path';
+import fs from 'node:fs';
 import { transcriptionRoutes } from './routes/transcriptionRoutes.js';
 
 dotenv.config();
@@ -29,8 +32,17 @@ export async function buildApp(opts = {}) {
     }
   });
 
-  // Registra as rotas da API
+  // Registra as rotas da API HTTP
   await app.register(transcriptionRoutes);
+
+  // Serve arquivos estáticos da UI compilada em 'dist' (se o diretório existir)
+  const distPath = path.resolve(process.cwd(), 'dist');
+  if (fs.existsSync(distPath)) {
+    await app.register(fastifyStatic, {
+      root: distPath,
+      prefix: '/'
+    });
+  }
 
   return app;
 }

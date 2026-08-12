@@ -1,7 +1,8 @@
+import os from 'node:os';
 import fs from 'node:fs';
 import path from 'node:path';
 import { transcriptionStore } from '../services/transcriptionStore.js';
-import { mindeeService } from '../services/mindeeService.js';
+import { geminiService } from '../services/geminiService.js';
 import { generateExport } from '../utils/exportUtils.js';
 
 /**
@@ -56,19 +57,16 @@ export async function transcriptionRoutes(fastify) {
     // Cria o trabalho de transcrição no estado 'processando'
     const job = transcriptionStore.createJob(tipo);
 
-    // Salva o buffer em arquivo temporário para ser processado pelo Mindee SDK de forma assíncrona
-    const tempDir = path.join(process.cwd(), 'tmp');
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
-    }
-    const tempFilePath = path.join(tempDir, `${job.id}_${fileName}`);
+    // Salva o buffer no sistema de arquivos temporário do sistema operacional (fora da pasta do projeto)
+    const tempDir = os.tmpdir();
+    const tempFilePath = path.join(tempDir, `quick_filler_${job.id}_${fileName}`);
     fs.writeFileSync(tempFilePath, fileBuffer);
 
     // ⚡ Processamento Assíncrono (sem await na resposta HTTP)
     setImmediate(async () => {
       try {
         const docTypeMapping = tipo === 'cartao-ponto' ? 'time_card' : 'payroll';
-        const parsedResult = await mindeeService.parseDocument(tempFilePath, docTypeMapping);
+        const parsedResult = await geminiService.parseDocument(tempFilePath, docTypeMapping);
 
         // Se o resultado for válido, conclui o job
         transcriptionStore.completeJob(job.id, parsedResult);
@@ -157,7 +155,7 @@ export async function transcriptionRoutes(fastify) {
       });
     }
 
-    const exportData = generateExport(job, formato);
+    const exportData = await generateExport(job, formato);
 
     reply.header('Content-Type', exportData.contentType);
     reply.header('Content-Disposition', `attachment; filename="${exportData.filename}"`);

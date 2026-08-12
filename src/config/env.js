@@ -19,7 +19,7 @@ if (fs.existsSync(currentEnvPath)) {
 }
 
 export const config = {
-  mindeeApiKey: process.env.MINDEE_API || '',
+  geminiApiKey: process.env.GEMINI_API_KEY || '',
   dataInputDir: process.env.DATA_INPUT_DIR 
     ? path.resolve(process.env.DATA_INPUT_DIR)
     : (fs.existsSync(path.resolve(process.cwd(), '../data_input'))
@@ -28,10 +28,11 @@ export const config = {
 };
 
 export function validateEnv() {
-  if (!config.mindeeApiKey) {
+  if (!config.geminiApiKey) {
     throw new Error(
-      'Chave de API do Mindee (MINDEE_API) não foi encontrada nas variáveis de ambiente nem no arquivo .env.'
+      'Chave de API do Gemini (GEMINI_API_KEY) não foi encontrada nas variáveis de ambiente nem no arquivo .env.'
     );
   }
   return true;
 }
+
