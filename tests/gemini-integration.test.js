@@ -1,17 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { config, validateEnv } from '../src/config/env.js';
-import { mindeeService } from '../src/services/mindeeService.js';
+import { geminiService } from '../src/services/geminiService.js';
 import { listInputDocuments } from '../src/utils/inputDocuments.js';
 
-test('Mindee Environment Configuration', () => {
-  assert.equal(validateEnv(), true, 'Deve validar a presença da variável MINDEE_API');
-  assert.ok(config.mindeeApiKey.length > 0, 'Chave de API do Mindee não deve ser vazia');
+test('Gemini Environment Configuration', () => {
+  assert.equal(validateEnv(), true, 'Deve validar a presença da variável GEMINI_API_KEY');
+  assert.ok(config.geminiApiKey.length > 0, 'Chave de API do Gemini não deve ser vazia');
 });
 
-test('Mindee Service Client Readiness', () => {
-  assert.equal(mindeeService.isReady(), true, 'MindeeService deve estar inicializado e pronto');
-  assert.ok(mindeeService.getClient() !== null, 'Cliente Mindee SDK não deve ser nulo');
+test('Gemini Service Client Readiness', () => {
+  assert.equal(geminiService.isReady(), true, 'GeminiService deve estar inicializado e pronto');
+  assert.ok(geminiService.getClient() !== null, 'Cliente Gemini AI não deve ser nulo');
 });
 
 test('Input Documents Mapping Helper', () => {

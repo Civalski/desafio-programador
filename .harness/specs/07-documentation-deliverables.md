@@ -1,6 +1,6 @@
 # Especificação Modular 07: Entregáveis e Documentação (`SOLUCAO.md` e `PROCESSO.md`)
 
-Este módulo especifica o formato, conteúdo e perguntas obrigatórias que DEVEM ser respondidas nos arquivos de documentação `SOLUCAO.md` e `PROCESSO.md`, refletindo o padrão de projeto Open Source e integração com a API do Mindee.
+Este módulo especifica o formato, conteúdo e perguntas obrigatórias que DEVEM ser respondidas nos arquivos de documentação `SOLUCAO.md` e `PROCESSO.md`, refletindo o padrão de projeto Open Source e integração com a API do Gemini.
 
 ---
 
@@ -9,8 +9,8 @@ Este módulo especifica o formato, conteúdo e perguntas obrigatórias que DEVEM
 Arquivo focado em como rodar o projeto, arquitetura adotada e decisões de engenharia de nível de produção Open Source:
 
 ### Seções Obrigatórias:
-1. **Como Executar**: Instruções claras de execução com `docker compose up` e localmente, incluindo a configuração da variável de ambiente `MINDEE_API_KEY`.
-2. **Arquitetura de Produção Open Source**: Tecnologias utilizadas, fluxo de pipeline assíncrono e integração com a API do Mindee para extração via IA.
+1. **Como Executar**: Instruções claras de execução com `docker compose up` e localmente, incluindo a configuração da variável de ambiente `GEMINI_API_KEY`.
+2. **Arquitetura de Produção Open Source**: Tecnologias utilizadas, fluxo de pipeline assíncrono e integração com a API do Gemini para extração via IA.
 3. **Decisões de Engenharia & Trade-offs**: Justificativa de escolhas de bibliotecas, manutenibilidade do código e suporte a múltiplos layouts.
 4. **Política de Retenção de Dados**: Explicação de onde e por quanto tempo os PDFs enviados e transcrições ficam armazenados.
 5. **O que ficou de fora**: Se algum escopo foi cortado sob o prazo de 14h, listar o quê e o porquê.

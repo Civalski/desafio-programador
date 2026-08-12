@@ -1,6 +1,6 @@
-# Especificação Modular 06: Arquitetura, Docker, API Mindee & Open Source
+# Especificação Modular 06: Arquitetura, Docker, API Gemini & Open Source
 
-Este módulo detalha as exigências arquiteturais, integração com a API do **Mindee**, padrões de projeto **Open Source de produção**, containerização Docker e normas de segurança/privacidade.
+Este módulo detalha as exigências arquiteturais, integração com a API do **Google Gemini**, padrões de projeto **Open Source de produção**, containerização Docker e normas de segurança/privacidade.
 
 ---
 
@@ -9,18 +9,18 @@ Este módulo detalha as exigências arquiteturais, integração com a API do **M
 Embora este projeto responda a um desafio técnico, ele está sendo construído como um **sistema real de nível de produção e projeto Open Source**.
 
 ### Princípios de Engenharia de Produção:
-- **Clean Architecture / Separated Concerns**: Separação clara entre camada HTTP, fila de background jobs, clientes de serviços externos (Mindee API), serviços de domínio e formatadores de exportação.
+- **Clean Architecture / Separated Concerns**: Separação clara entre camada HTTP, fila de background jobs, clientes de serviços externos (Gemini API), serviços de domínio e formatadores de exportação.
 - **Padrão Open Source**: Código modular, tipado, legível, extensível para novos layouts e tipos de documentos, configurável via variáveis de ambiente com arquivo `.env.example`.
 - **Pipeline Único**: Cartão de ponto e holerite compartilham os módulos de upload, fila assíncrona, persistência, interface web e exportação. O que varia são os parsers/schemas específicos do tipo de documento.
 
 ---
 
-## 🤖 2. Leitura com IA: API Mindee (DocAI)
+## 🤖 2. Leitura com IA: API Gemini (Google Gen AI)
 
-O motor de extração de documentos utilizará a **API do Mindee** (serviço de IA / Document Intelligence) em substituição a motores de OCR locais (como Tesseract):
+O motor de extração de documentos utilizará a **API do Gemini** (modelo `gemini-2.5-flash` / Document Intelligence) em substituição a motores legados:
 
 1. **Autenticação & Variáveis de Ambiente**:
-   - A chave de API do Mindee deve ser passada estritamente via variável de ambiente: `MINDEE_API_KEY`.
+   - A chave de API do Gemini deve ser passada estritamente via variável de ambiente: `GEMINI_API_KEY`.
    - NUNCA exponha a chave de API no código ou repositório.
 
 2. **Fluxo de Extração**:

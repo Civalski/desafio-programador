@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { normalizeTimeCardResponse } from '../src/normalizers/timeCardNormalizer.js';
 import { normalizePayrollResponse } from '../src/normalizers/payrollNormalizer.js';
 import { isValidDateString, normalizeTimeHHMM, formatMoneyString, hasOddPunches } from '../src/utils/validationUtils.js';
-import { mindeeService } from '../src/services/mindeeService.js';
+import { geminiService } from '../src/services/geminiService.js';
 
 test('Validation Utils - Dates, Times, and Formatting', () => {
   // Teste de validação de datas
@@ -111,8 +111,8 @@ test('Payroll Normalizer DTO Schema - Separation of Fields and Bases', () => {
   assert.equal(dto.pages[0].bases[2].value, '2.282,81');
 });
 
-test('MindeeService Parse Document Routing', async () => {
-  assert.ok(typeof mindeeService.parseTimeCard === 'function');
-  assert.ok(typeof mindeeService.parsePayroll === 'function');
-  assert.ok(typeof mindeeService.parseDocument === 'function');
+test('GeminiService Parse Document Routing', async () => {
+  assert.ok(typeof geminiService.parseTimeCard === 'function');
+  assert.ok(typeof geminiService.parsePayroll === 'function');
+  assert.ok(typeof geminiService.parseDocument === 'function');
 });
