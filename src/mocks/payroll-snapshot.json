@@ -1,0 +1,31 @@
+{
+  "pages": [
+    {
+      "pageNumber": 1,
+      "year": "2017",
+      "month": "04",
+      "items": [
+        { "code": "40", "label": "Reembolso VR", "reference": "0,00", "value": "360,00" },
+        { "code": "91", "label": "Hr Adic Pericul", "reference": "146,67", "value": "290,92" },
+        { "code": "102", "label": "Hr Ext Diu 60%", "reference": "15,15", "value": "224,50" },
+        { "code": "104", "label": "Hr Ext Diu 80%", "reference": "17,38", "value": "289,77" },
+        { "code": "404", "label": "Adt Norm Desc", "reference": "0", "value": "814,97" },
+        { "code": "491", "label": "Seguro Vida Fun", "reference": "0", "value": "1,76" },
+        { "code": "492", "label": "Multas", "reference": "0", "value": "104,13" },
+        { "code": "499", "label": "Vale Ref Func", "reference": "23", "value": "75,90" },
+        { "code": "511", "label": "INSS Normal", "reference": "0", "value": "236,77" },
+        { "code": "561", "label": "IRF Normal", "reference": "0", "value": "0,00" },
+        { "code": "613", "label": "Smart 500 QC", "reference": "0", "value": "155,66" },
+        { "code": "684", "label": "Vale Gas", "reference": "0", "value": "4,32" },
+        { "code": "820", "label": "Vale Transp Fun", "reference": "86", "value": "94,04" },
+        { "code": "", "label": "Base INSS", "reference": "", "value": "2.630,79", "isBase": true },
+        { "code": "", "label": "Base IRRF", "reference": "", "value": "2.014,84", "isBase": true },
+        { "code": "", "label": "Base FGTS", "reference": "", "value": "2.630,79", "isBase": true },
+        { "code": "", "label": "Valor do FGTS", "reference": "", "value": "210,46", "isBase": true },
+        { "code": "", "label": "Total Rendimentos", "reference": "", "value": "2.927,79", "isBase": true },
+        { "code": "", "label": "Total Descontos", "reference": "", "value": "1.535,62", "isBase": true },
+        { "code": "", "label": "Valor Líquido", "reference": "", "value": "1.392,17", "isBase": true }
+      ]
+    }
+  ]
+}

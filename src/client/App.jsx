@@ -1,0 +1,161 @@
+import React, { useState, useEffect } from 'react';
+import { UploadZone } from './components/UploadZone.jsx';
+import { PdfViewer } from './components/PdfViewer.jsx';
+import { EditableTable } from './components/EditableTable.jsx';
+import { ExportBar } from './components/ExportBar.jsx';
+
+export default function App() {
+  const [uploadedFile, setUploadedFile] = useState(null);
+  const [tipo, setTipo] = useState('cartao-ponto');
+  const [jobId, setJobId] = useState(null);
+  const [jobStatus, setJobStatus] = useState('idle');
+  const [extractedData, setExtractedData] = useState(null);
+  const [errorMessage, setErrorMessage] = useState('');
+
+  // Polling de status do job assíncrono
+  useEffect(() => {
+    if (!jobId || jobStatus !== 'processando') return;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/transcricoes/${jobId}`);
+        if (!res.ok) throw new Error('Falha ao consultar status da transcrição.');
+        const data = await res.json();
+
+        if (data.status === 'concluido') {
+          setExtractedData(data.value);
+          setJobStatus('concluido');
+          clearInterval(interval);
+        } else if (data.status === 'erro') {
+          setErrorMessage(data.erro || 'Falha ao processar documento.');
+          setJobStatus('erro');
+          clearInterval(interval);
+        }
+      } catch (err) {
+        console.error('Erro no polling:', err);
+        setErrorMessage(err.message);
+        setJobStatus('erro');
+        clearInterval(interval);
+      }
+    }, 500);
+
+    return () => clearInterval(interval);
+  }, [jobId, jobStatus]);
+
+  const handleUpload = async (file, documentType) => {
+    setUploadedFile(file);
+    setTipo(documentType);
+    setJobStatus('processando');
+    setErrorMessage('');
+    setExtractedData(null);
+
+    try {
+      const formData = new FormData();
+      formData.append('arquivo', file);
+      formData.append('tipo', documentType);
+
+      const res = await fetch('/api/transcricoes', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json();
+        throw new Error(errJson.erro || 'Erro ao enviar arquivo.');
+      }
+
+      const { id } = await res.json();
+      setJobId(id);
+    } catch (err) {
+      console.error('Erro de upload:', err);
+      setErrorMessage(err.message);
+      setJobStatus('erro');
+    }
+  };
+
+  const handleSaveData = async () => {
+    if (!jobId || !extractedData) return;
+
+    const res = await fetch(`/api/transcricoes/${jobId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value: extractedData }),
+    });
+
+    if (!res.ok) {
+      const errData = await res.json();
+      throw new Error(errData.erro || 'Falha ao salvar correções.');
+    }
+  };
+
+  const handleReset = () => {
+    setUploadedFile(null);
+    setJobId(null);
+    setJobStatus('idle');
+    setExtractedData(null);
+    setErrorMessage('');
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+      <header className="app-header">
+        <div className="app-brand">
+          <span style={{ fontSize: '1.8rem' }}>🚀</span>
+          <div>
+            <div className="app-logo">Quick Filler Scanner</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+              Transcrição de Holerites & Cartões de Ponto em PDF
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <span className="badge-mock">⚡ Gemini AI Active</span>
+        </div>
+      </header>
+
+      <main className="container">
+        {jobStatus === 'idle' && (
+          <UploadZone onUpload={handleUpload} isProcessing={false} />
+        )}
+
+        {jobStatus === 'processando' && (
+          <div className="upload-card">
+            <div className="spinner" style={{ width: '48px', height: '48px', marginBottom: '1rem' }}></div>
+            <h2>Processando Transcrição...</h2>
+            <p style={{ color: 'var(--text-muted)', marginTop: '0.5rem' }}>
+              Enviado via pipeline assíncrono. Aguarde a leitura dos dados...
+            </p>
+          </div>
+        )}
+
+        {jobStatus === 'erro' && (
+          <div className="upload-card" style={{ borderColor: '#f87171' }}>
+            <h2 style={{ color: '#f87171' }}>❌ Erro na Transcrição</h2>
+            <p style={{ color: 'var(--text-muted)', margin: '1rem 0' }}>{errorMessage}</p>
+            <button className="btn-secondary" onClick={handleReset}>Tentar Novamente</button>
+          </div>
+        )}
+
+        {jobStatus === 'concluido' && (
+          <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+            <div className="split-view">
+              <PdfViewer file={uploadedFile} />
+              <EditableTable 
+                data={extractedData} 
+                tipo={tipo} 
+                onChangeData={setExtractedData} 
+              />
+            </div>
+
+            <ExportBar 
+              jobId={jobId} 
+              onSave={handleSaveData} 
+              onReset={handleReset} 
+            />
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
