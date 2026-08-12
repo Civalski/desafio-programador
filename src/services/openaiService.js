@@ -321,6 +321,7 @@ export class OpenAIService {
    */
   async parsePayroll(filePath, options = {}) {
     const onProgress = options.onProgress || (() => {});
+    let scannedPageNumbers = [];
     try {
       if (!fs.existsSync(filePath)) {
         throw new Error(`Arquivo não encontrado: ${filePath}`);
@@ -425,7 +426,7 @@ export class OpenAIService {
           // Caso padrão (Holerite comum por página)
           const pdfPages = await this.extractPdfTextPages(filePath);
           const totalPages = pdfPages.length;
-          const scannedPageNumbers = pdfPages
+          scannedPageNumbers = pdfPages
             .filter(page => selectExtractionStrategy(page.density, false) === 'VISION_SINGLE_PASS')
             .map(page => page.pageNum);
           let scannedImages = new Map();
@@ -438,7 +439,7 @@ export class OpenAIService {
               message: 'Imagem escaneada detectada. Convertendo paginas para analise visual...',
               log: 'Imagem escaneada detectada. Convertendo paginas para analise visual...'
             });
-            scannedImages = await rasterizePdfPages(filePath, scannedPageNumbers, { scale: 4 });
+            scannedImages = await rasterizePdfPages(filePath, scannedPageNumbers, { scale: 2 });
           }
           console.log(`📄 Processando ${totalPages} páginas de holerite em paralelo via OpenAI...`);
           onProgress({
@@ -572,10 +573,20 @@ export class OpenAIService {
 
       // Fallback para o extrator local
       const localResult = await extractPayrollLocalPdf(filePath, options);
-      return normalizePayrollResponse(localResult);
+      const normalizedLocal = normalizePayrollResponse(localResult);
+
+      const hasFields = normalizedLocal.pages?.some(p => p.fields && p.fields.length > 0);
+      if (!hasFields && scannedPageNumbers.length > 0) {
+        throw new Error('PDF escaneado/imagem detectado (payroll-04.pdf). Não foi possível extrair dados via OpenAI Vision nem pelo extrator local.');
+      }
+
+      return normalizedLocal;
 
     } catch (error) {
       console.error(`❌ Erro no parsing via OpenAI (${filePath}):`, error.message);
+      if (error.message?.includes('VISION_EXTRACTION') || error.message?.includes('OPENAI') || error.message?.includes('PDF escaneado')) {
+        throw error;
+      }
       return normalizePayrollResponse({ pages: [] });
     }
   }
