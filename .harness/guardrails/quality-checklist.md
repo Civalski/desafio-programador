@@ -14,4 +14,5 @@ Antes de finalizar qualquer subtarefa ou submeter código no repositório, o age
 - [ ] **Visualização Lado a Lado**: A interface permite visualizar o PDF e a tabela editável simultaneamente.
 - [ ] **Pipeline Único**: Cartão de Ponto e Holerite compartilham o mesmo fluxo de upload, fila e revisão.
 - [ ] **Docker Compose**: `docker compose up` executa e sobe toda a aplicação sem erros.
+- [ ] **Testes Essenciais por Branch**: A branch possui testes focados e fundamentais que validam a funcionalidade/integração implementada (sem cobertura artificial ou testes em excesso).
 - [ ] **Documentação Obrigatória**: `SOLUCAO.md` e `PROCESSO.md` preenchidos com respostas fundamentadas às 3 perguntas obrigatórias.

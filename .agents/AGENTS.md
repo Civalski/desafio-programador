@@ -20,7 +20,11 @@ Este repositório possui uma infraestrutura de **AI Harness** para garantir que 
    - **Arquitetura Unificada**: Cartão de ponto e holerite compartilham 100% do pipeline (upload, fila assíncrona, interface de revisão, edição e download). NUNCA crie duas aplicações separadas.
    - **Processamento HTTP Assíncrono**: NUNCA processe a extração dentro da requisição HTTP síncrona. O endpoint `POST /api/transcricoes` devolve `202 Accepted` com `id`, e o processamento roda em segundo plano.
 
-3. **Validação e Verificação**:
+3. **Testes Essenciais por Branch**:
+   - Toda nova funcionalidade ou integração desenvolvida em uma branch DEVE ser acompanhada por testes automatizados (unitários ou integrados) que validem aquela implementação específica.
+   - NUNCA crie testes em excesso ou coberturas artificiais. Escreva apenas o conjunto essencial de testes que garante a correção e a estabilidade dos fluxos críticos desenvolvidos na branch.
+
+4. **Validação e Verificação**:
    - Antes de declarar qualquer subtarefa concluída, consulte [.harness/guardrails/quality-checklist.md](file:///c:/Users/Alisson%20Civalski/Documents/Quick/desafio-programador/.harness/guardrails/quality-checklist.md).
    - Verifique a presença de anti-patterns descritos em [.harness/guardrails/anti-patterns.md](file:///c:/Users/Alisson%20Civalski/Documents/Quick/desafio-programador/.harness/guardrails/anti-patterns.md).
 
