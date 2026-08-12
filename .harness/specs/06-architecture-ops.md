@@ -1,47 +1,55 @@
-# Especificação Modular 06: Arquitetura, Docker & Segurança
+# Especificação Modular 06: Arquitetura, Docker, API Mindee & Open Source
 
-Este módulo detalha as exigências arquiteturais, containerização em Docker e normas de segurança/privacidade de dados.
-
----
-
-## 🏛️ Arquitetura de Pipeline Único
-
-> [!IMPORTANT]
-> **Um Pipeline, Dois Extratores**:
-> Cartão de Ponto e Holerite compartilham os módulos de:
-> - Envio / Upload HTTP
-> - Fila de Processamento Assíncrono
-> - Armazenamento de estado da transcrição
-> - Interface Web de Revisão e Tabela Editável
-> - Download e geração de planilha
-> 
-> O que muda é apenas o módulo leitor/parser específico do tipo de documento. Criar duas aplicações distintas resultará em perda de pontos no critério de Arquitetura.
+Este módulo detalha as exigências arquiteturais, integração com a API do **Mindee**, padrões de projeto **Open Source de produção**, containerização Docker e normas de segurança/privacidade.
 
 ---
 
-## 🐳 Docker & Operação
+## 🏛️ 1. Arquitetura de Produção & Visão Open Source
+
+Embora este projeto responda a um desafio técnico, ele está sendo construído como um **sistema real de nível de produção e projeto Open Source**.
+
+### Princípios de Engenharia de Produção:
+- **Clean Architecture / Separated Concerns**: Separação clara entre camada HTTP, fila de background jobs, clientes de serviços externos (Mindee API), serviços de domínio e formatadores de exportação.
+- **Padrão Open Source**: Código modular, tipado, legível, extensível para novos layouts e tipos de documentos, configurável via variáveis de ambiente com arquivo `.env.example`.
+- **Pipeline Único**: Cartão de ponto e holerite compartilham os módulos de upload, fila assíncrona, persistência, interface web e exportação. O que varia são os parsers/schemas específicos do tipo de documento.
+
+---
+
+## 🤖 2. Leitura com IA: API Mindee (DocAI)
+
+O motor de extração de documentos utilizará a **API do Mindee** (serviço de IA / Document Intelligence) em substituição a motores de OCR locais (como Tesseract):
+
+1. **Autenticação & Variáveis de Ambiente**:
+   - A chave de API do Mindee deve ser passada estritamente via variável de ambiente: `MINDEE_API_KEY`.
+   - NUNCA exponha a chave de API no código ou repositório.
+
+2. **Fluxo de Extração**:
+   - O worker de segundo plano envia o PDF para os endpoints/SDK do Mindee.
+   - O retorno bruto do Mindee é transformado e mapeado para o contrato JSON estrito do projeto (`cartao-ponto` ou `holerite`).
+   - Em caso de falha da API (ex: rate limit, falha de rede, PDF gigante), registrar o erro de forma clara (`status: "erro"`, `erro: "Mensagem..."`) sem derrubar a aplicação.
+
+---
+
+## 🐳 3. Docker & Operação
 
 1. **`Dockerfile`**:
-   - Imagem otimizada (Multi-stage build).
-   - Instalação de dependências do sistema necessárias para OCR (ex: `tesseract-ocr` e pacotes de idioma `tesseract-ocr-por` se optar por Tesseract).
+   - Multi-stage build otimizado para produção.
+   - Instalação de dependências mínimas e execução com usuário não-root por segurança.
 
 2. **`docker-compose.yml`**:
    - Permite subir todo o ambiente de forma simples com `docker compose up`.
-   - Mapeamento de portas e variáveis de ambiente configuráveis.
-   - NENHUM segredo (API keys ou senhas) deve estar hardcoded no código ou repositório.
+   - Injeta as variáveis de ambiente necessárias (incluindo `MINDEE_API_KEY`).
 
 ---
 
-## 🛡️ Segurança & Privacidade de Dados (PII)
-
-Como a aplicação lida com documentos trabalhistas reais (contendo CPF, salários, horários e dados pessoais):
+## 🛡️ 4. Segurança, Privacidade & PII
 
 1. **Validação de Upload**:
-   - Validar mime-type e magic bytes do arquivo enviando para garantir que seja efetivamente um PDF.
-   - Limite de tamanho de upload (ex: máximo 20MB por arquivo).
+   - Validar mime-type e magic bytes (`%PDF-`) do arquivo enviado.
+   - Limite de tamanho configurável (ex: máx 20MB).
 
-2. **Privacidade nos Logs**:
-   - NUNCA registrar informações de identificação pessoal (PII) como nomes de funcionários, números de CPF ou valores salariais nos logs da aplicação/servidor.
+2. **Privacidade nos Logs (PII)**:
+   - NUNCA registrar dados de identificação pessoal (CPF, salários, nomes de funcionários) nos logs do servidor. Logs devem conter apenas IDs de trabalho, métricas de tempo e status.
 
 3. **Política de Retenção de Dados**:
-   - Documentar explicitamente em `SOLUCAO.md` qual a política de retenção dos arquivos salvos (ex: expiração em memória, limpeza periódica de temporários).
+   - Documentar em `SOLUCAO.md` a política de limpeza e ciclo de vida dos arquivos PDF e transcrições temporárias.

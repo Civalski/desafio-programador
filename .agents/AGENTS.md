@@ -1,6 +1,6 @@
 # Regras Globais & Context Router do Agente (AI Harness)
 
-Este repositório possui uma infraestrutura de **AI Harness** para garantir que o desenvolvimento de código ocorra com a máxima qualidade, precisão e eficiência de tokens, aplicando **Progressive Disclosure** e **Context Routing**.
+Este repositório possui uma infraestrutura de **AI Harness** para garantir que o desenvolvimento de código ocorra com a máxima qualidade, precisão, padrões de produção **Open Source** e eficiência de tokens, aplicando **Progressive Disclosure** e **Context Routing**.
 
 ---
 
@@ -10,7 +10,9 @@ Este repositório possui uma infraestrutura de **AI Harness** para garantir que 
    - NUNCA recarregue especificações completas não relacionadas à tarefa atual.
    - Antes de iniciar qualquer subtarefa, consulte o mapa de roteamento em [.harness/INDEX.md](file:///c:/Users/Alisson%20Civalski/Documents/Quick/desafio-programador/.harness/INDEX.md) e leia apenas a especificação modular necessária localizada em `.harness/specs/`.
 
-2. **Princípios Inegociáveis do Domínio**:
+2. **Princípios Inegociáveis do Domínio & Arquitetura**:
+   - **Extração via IA (API Mindee)**: A extração de documentos é feita via **API do Mindee** utilizando a chave de ambiente `MINDEE_API_KEY`. Não utilizar motores de OCR locais.
+   - **Padrão Open Source & Produção**: Código limpo, desacoplado, modular e extensível, pronto para produção real.
    - **Honestidade dos Dados (`?`)**: Um caractere ilegível DEVE ser marcado como `?`. NUNCA invente ou chute valores. Incerteza é por caractere, não por linha.
    - **Formato Monetário**: Valores monetários são STRINGS no formato brasileiro (ex: `"2.389,77"`). NUNCA converta para `float` ou `number`.
    - **Preservação do Original (`_raw`)**: Mantenha sempre `date_raw` e `time_raw` exatamente como impressos.
@@ -30,11 +32,11 @@ Quando for executar uma tarefa específica, carregue o contexto apontado abaixo:
 
 | Tarefa / Escopo | Módulo de Especificação | Skill / Regra a Ativar |
 |---|---|---|
-| Extração de Cartão de Ponto | [01-domain-cartao-ponto.md](file:///c:/Users/Alisson%20Civalski/Documents/Quick/desafio-programador/.harness/specs/01-domain-cartao-ponto.md) | `cartao-ponto-extractor` |
-| Extração de Holerite | [02-domain-holerite.md](file:///c:/Users/Alisson%20Civalski/Documents/Quick/desafio-programador/.harness/specs/02-domain-holerite.md) | `holerite-extractor` |
+| Extração de Cartão de Ponto (API Mindee) | [01-domain-cartao-ponto.md](file:///c:/Users/Alisson%20Civalski/Documents/Quick/desafio-programador/.harness/specs/01-domain-cartao-ponto.md) | `cartao-ponto-extractor` |
+| Extração de Holerite (API Mindee) | [02-domain-holerite.md](file:///c:/Users/Alisson%20Civalski/Documents/Quick/desafio-programador/.harness/specs/02-domain-holerite.md) | `holerite-extractor` |
 | Endpoints HTTP e Fila Assíncrona | [03-api-contracts.md](file:///c:/Users/Alisson%20Civalski/Documents/Quick/desafio-programador/.harness/specs/03-api-contracts.md) | `api-contract-checker` |
 | Geração de Excel / CSV / JSON e Cores | [04-excel-export.md](file:///c:/Users/Alisson%20Civalski/Documents/Quick/desafio-programador/.harness/specs/04-excel-export.md) | `excel-generator` |
 | Interface Web de Revisão Lado a Lado | [05-frontend-ui.md](file:///c:/Users/Alisson%20Civalski/Documents/Quick/desafio-programador/.harness/specs/05-frontend-ui.md) | — |
-| Arquitetura, Docker e Segurança | [06-architecture-ops.md](file:///c:/Users/Alisson%20Civalski/Documents/Quick/desafio-programador/.harness/specs/06-architecture-ops.md) | — |
+| Arquitetura Open Source, API Mindee & Docker | [06-architecture-ops.md](file:///c:/Users/Alisson%20Civalski/Documents/Quick/desafio-programador/.harness/specs/06-architecture-ops.md) | — |
 | Documentação `SOLUCAO.md` e `PROCESSO.md` | [07-documentation-deliverables.md](file:///c:/Users/Alisson%20Civalski/Documents/Quick/desafio-programador/.harness/specs/07-documentation-deliverables.md) | `process-logger` |
 | Critérios de Avaliação e Notas | [08-evaluation-rubric.md](file:///c:/Users/Alisson%20Civalski/Documents/Quick/desafio-programador/.harness/specs/08-evaluation-rubric.md) | — |
