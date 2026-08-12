@@ -589,5 +589,31 @@ body { background:radial-gradient(circle at 12% -10%,#283547 0,transparent 32rem
 .progress-card-user { box-shadow:0 18px 42px rgba(0,0,0,.24); }.user-doc-badge { background:var(--bg-input); }.user-step-badge { background:rgba(77,163,255,.12); color:#b8dcff; border-color:rgba(77,163,255,.35); }.user-progress-track { background:var(--bg-input); }.user-progress-fill { background:linear-gradient(90deg,#2389f5,#85c4ff); }.user-steps-container { background:var(--bg-input); }.user-step-circle { background:var(--bg-elevated); border-color:#4a5564; }.user-step-item.completed .user-step-circle { background:var(--accent-black); border-color:var(--accent-black); color:var(--accent-white); }.user-step-item.active .user-step-circle { border-color:var(--accent-black); }.user-step-pulse { background:var(--accent-black); }.user-step-line { background:#3a4350; }.user-step-item.completed .user-step-line { background:var(--accent-black); }
 @media (max-width:680px) { .app-header { min-height:64px; padding:.8rem 1rem; }.badge-mock { display:none; }.container { padding:1rem; }.upload-card { padding:2rem 1rem; border-radius:15px; }.segmented-control { width:100%; }.radio-btn { flex:1; justify-content:center; padding:.55rem .45rem; }.action-bar { align-items:stretch; flex-direction:column; }.action-bar > div { width:100%; justify-content:stretch; flex-wrap:wrap; }.split-view { min-height:0; }.panel-header { align-items:flex-start; flex-direction:column; gap:.35rem; } }
 
+/* Dark Scrollbar Theme */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #3a4350 #14171c;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #14171c;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #3a4350;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #4a5564;
+}
+
+
 
 

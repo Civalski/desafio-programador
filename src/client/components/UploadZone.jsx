@@ -44,11 +44,29 @@ export function UploadZone({ onUpload, isProcessing }) {
       onDragLeave={() => setIsDragOver(false)}
       onDrop={handleDrop}
     >
+      <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
+        <span className="user-doc-badge" style={{ 
+          display: 'inline-flex', 
+          alignItems: 'center', 
+          gap: '0.4rem', 
+          padding: '0.35rem 0.85rem', 
+          borderRadius: '9999px', 
+          fontSize: '0.75rem', 
+          fontWeight: 600, 
+          letterSpacing: '0.05em', 
+          color: 'var(--accent-black)', 
+          border: '1px solid rgba(77,163,255,0.3)',
+          background: 'rgba(77,163,255,0.08)'
+        }}>
+          📄 MÓDULO FOLHA DE PAGAMENTO (PAYROLL)
+        </span>
+      </div>
+
       <h2 className={'upload-title'}>
-        Selecionar Documento para Transcrição
+        Transcrição & Auditoria de Holerites
       </h2>
       <p className={'upload-description'}>
-        Arraste seu arquivo PDF até aqui ou clique para selecionar no seu computador.
+        Envie seu arquivo PDF contendo holerites (folha de pagamento) para extrair verbas, referências e valores automaticamente.
       </p>
 
       <form onSubmit={handleSubmit} className={'upload-form'}>
@@ -61,7 +79,7 @@ export function UploadZone({ onUpload, isProcessing }) {
         />
         
         <label htmlFor="pdf-input" className="btn-secondary" style={{ display: 'inline-block', cursor: 'pointer', marginBottom: '1.25rem' }}>
-          {selectedFile ? `📄 ${selectedFile.name}` : 'Escolher Arquivo PDF'}
+          {selectedFile ? `📄 ${selectedFile.name}` : 'Escolher PDF de Holerite'}
         </label>
 
         {error && (
@@ -83,10 +101,10 @@ export function UploadZone({ onUpload, isProcessing }) {
         >
           {isProcessing ? (
             <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', justifyContent: 'center' }}>
-              <span className="spinner"></span> Processando Transcrição...
+              <span className="spinner"></span> Processando Folha de Pagamento...
             </span>
           ) : (
-            'Transcrever Holerite (Payroll)'
+            'Transcrever Folha de Pagamento'
           )}
         </button>
       </form>

@@ -112,22 +112,7 @@ export default function App() {
 
   return (
     <div className={'app-shell'}>
-      <header className="app-header">
-        <div className="app-brand">
-          <div>
-            <div className="app-logo">QUICK FILLER</div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-subtle)', fontWeight: 400, marginTop: '2px' }}>
-              Transcrição & Auditoria de Holerites e Cartões de Ponto
-            </div>
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <span className="badge-mock">OpenAI Pipeline</span>
-        </div>
-      </header>
-
-      <main className="container">
+      <main className="container" style={{ paddingTop: '2.5rem' }}>
         {jobStatus === 'idle' && (
           <UploadZone onUpload={handleUpload} isProcessing={false} />
         )}
