@@ -86,7 +86,7 @@ function groupItemsIntoLines(items, yTolerance = 4) {
  * @returns {boolean}
  */
 export function detectFichaFinanceira(pdfPages) {
-  const MES_MARKER_REGEX = /^Mês\s*:\s*[a-z]{3,9}[\s\-]\d{2,4}$/i;
+  const MES_MARKER_REGEX = /^Mês\s*:\s*[a-z]{3,9}[\s\-]\d{2,4}\b/i;
   let totalMarkers = 0;
 
   for (const page of pdfPages) {
@@ -121,7 +121,7 @@ export function detectFichaFinanceira(pdfPages) {
  * }>}
  */
 export function segmentMonthBlocks(pageItems, pageNum) {
-  const MES_MARKER_REGEX = /^Mês\s*:\s*([a-z]{3,9}[\s\-]\d{2,4})$/i;
+  const MES_MARKER_REGEX = /^Mês\s*:\s*([a-z]{3,9}[\s\-]\d{2,4})\b/i;
   const lines = groupItemsIntoLines(pageItems);
 
   // Encontra todas as linhas-marcadores "Mês: xxx-YY" e suas posições Y
