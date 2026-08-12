@@ -53,6 +53,84 @@ export class MindeeService {
     }
     return this.client.docFromPath(filePath);
   }
+
+  /**
+   * Envia um documento de Cartão de Ponto para parsing no Mindee SDK e normaliza no DTO padronizado.
+   * @param {string} filePath Caminho do PDF do cartão de ponto.
+   * @returns {Promise<Object>} DTO normalizado do Cartão de Ponto.
+   */
+  async parseTimeCard(filePath) {
+    try {
+      const inputDoc = this.prepareDocumentInput(filePath);
+      
+      // Chamada genérica de extração via Mindee SDK
+      // Tenta usar produto financeiro/customizado se configurado, ou fallback de extração tabular
+      let apiResponse = null;
+      if (this.client.parse) {
+        apiResponse = await this.client.parse(mindee.product.FinancialDocumentV1, inputDoc);
+      } else {
+        apiResponse = await this.client.enqueueAndParse(mindee.product.FinancialDocumentV1, inputDoc);
+      }
+
+      const { normalizeTimeCardResponse } = await import('../normalizers/timeCardNormalizer.js');
+      return normalizeTimeCardResponse(apiResponse?.document || apiResponse);
+    } catch (error) {
+      console.error(`❌ Erro no parsing de Cartão de Ponto (${filePath}):`, error.message);
+      
+      // Fallback seguro em caso de cota zerada ou falta de conexão com API em dev
+      const { normalizeTimeCardResponse } = await import('../normalizers/timeCardNormalizer.js');
+      return normalizeTimeCardResponse({
+        pages: [{ page: 1, days: [] }],
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Envia um documento de Holerite (Payroll) para parsing no Mindee SDK e normaliza no DTO padronizado.
+   * @param {string} filePath Caminho do PDF do holerite.
+   * @returns {Promise<Object>} DTO normalizado do Holerite.
+   */
+  async parsePayroll(filePath) {
+    try {
+      const inputDoc = this.prepareDocumentInput(filePath);
+      
+      let apiResponse = null;
+      if (this.client.parse) {
+        apiResponse = await this.client.parse(mindee.product.FinancialDocumentV1, inputDoc);
+      } else {
+        apiResponse = await this.client.enqueueAndParse(mindee.product.FinancialDocumentV1, inputDoc);
+      }
+
+      const { normalizePayrollResponse } = await import('../normalizers/payrollNormalizer.js');
+      return normalizePayrollResponse(apiResponse?.document || apiResponse);
+    } catch (error) {
+      console.error(`❌ Erro no parsing de Holerite (${filePath}):`, error.message);
+      
+      const { normalizePayrollResponse } = await import('../normalizers/payrollNormalizer.js');
+      return normalizePayrollResponse({
+        pages: [{ page: 1, year: '', month: '', fields: [], bases: [] }],
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Roteador principal para parsear documentos baseado no tipo especificado.
+   * @param {string} filePath 
+   * @param {'time_card' | 'payroll'} documentType 
+   * @returns {Promise<Object>}
+   */
+  async parseDocument(filePath, documentType) {
+    if (documentType === 'time_card') {
+      return this.parseTimeCard(filePath);
+    } else if (documentType === 'payroll') {
+      return this.parsePayroll(filePath);
+    } else {
+      throw new Error(`Tipo de documento não suportado: ${documentType}`);
+    }
+  }
 }
 
 export const mindeeService = new MindeeService();
+
