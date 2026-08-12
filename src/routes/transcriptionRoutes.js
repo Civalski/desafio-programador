@@ -1,6 +1,7 @@
 import os from 'node:os';
 import fs from 'node:fs';
 import path from 'node:path';
+import { waitUntil } from '@vercel/functions';
 import { transcriptionStore } from '../services/transcriptionStore.js';
 import { aiProviderService } from '../services/aiProvider.js';
 import { generateExport } from '../utils/exportUtils.js';
@@ -62,8 +63,7 @@ export async function transcriptionRoutes(fastify) {
     const tempFilePath = path.join(tempDir, `quick_filler_${job.id}_${fileName}`);
     fs.writeFileSync(tempFilePath, fileBuffer);
 
-    // ⚡ Processamento Assíncrono (sem await na resposta HTTP)
-    setImmediate(async () => {
+    const processJob = async () => {
       try {
         const docTypeMapping = tipo === 'cartao-ponto' ? 'time_card' : 'payroll';
         const onProgress = (progUpdate) => transcriptionStore.updateJobProgress(job.id, progUpdate);
@@ -82,7 +82,21 @@ export async function transcriptionRoutes(fastify) {
           } catch (_) {}
         }
       }
-    });
+    };
+
+    const processPromise = processJob();
+
+    if (process.env.VERCEL) {
+      // Na Vercel, waitUntil instrui o runtime Serverless a manter o processo ativo em background
+      // após enviar o HTTP 202 Accepted. Isso evita estouro de 504 Timeout em arquivos grandes!
+      try {
+        waitUntil(processPromise);
+      } catch (_) {
+        await processPromise;
+      }
+    } else {
+      setImmediate(() => processPromise);
+    }
 
     // Retorna HTTP 202 Accepted imediatamente com o ID
     return reply.status(202).send({

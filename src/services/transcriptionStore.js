@@ -1,7 +1,55 @@
 import { randomUUID } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+
+const JOBS_DIR = path.join(os.tmpdir(), 'quick_filler_jobs');
+
+function ensureJobsDir() {
+  if (!fs.existsSync(JOBS_DIR)) {
+    try {
+      fs.mkdirSync(JOBS_DIR, { recursive: true });
+    } catch (_) {}
+  }
+}
+
+function saveJobToDisk(job) {
+  if (!job || !job.id) return;
+  try {
+    ensureJobsDir();
+    const filePath = path.join(JOBS_DIR, `${job.id}.json`);
+    fs.writeFileSync(filePath, JSON.stringify(job), 'utf8');
+  } catch (err) {
+    console.error(`⚠️ Erro ao salvar job ${job.id} no disco:`, err.message);
+  }
+}
+
+function readJobFromDisk(id) {
+  if (!id) return null;
+  try {
+    const filePath = path.join(JOBS_DIR, `${id}.json`);
+    if (fs.existsSync(filePath)) {
+      const content = fs.readFileSync(filePath, 'utf8');
+      return JSON.parse(content);
+    }
+  } catch (err) {
+    console.error(`⚠️ Erro ao ler job ${id} do disco:`, err.message);
+  }
+  return null;
+}
+
+function removeJobFromDisk(id) {
+  if (!id) return;
+  try {
+    const filePath = path.join(JOBS_DIR, `${id}.json`);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  } catch (_) {}
+}
 
 /**
- * Gerenciador de armazenamento em memória para o ciclo de vida das transcrições.
+ * Gerenciador de armazenamento em memória e disco para o ciclo de vida das transcrições.
  * Suporta estados: 'processando', 'concluido', 'erro'.
  */
 export class TranscriptionStore {
@@ -37,6 +85,7 @@ export class TranscriptionStore {
     };
 
     this.jobs.set(id, job);
+    saveJobToDisk(job);
     return job;
   }
 
@@ -46,7 +95,7 @@ export class TranscriptionStore {
    * @param {{ current?: number, total?: number, percentage?: number, message?: string, log?: string }} progressUpdate 
    */
   updateJobProgress(id, { current, total, percentage, message, log }) {
-    const job = this.jobs.get(id);
+    const job = this.getJob(id);
     if (!job) return null;
 
     const updatedLogs = [...(job.progress?.logs || [])];
@@ -65,16 +114,25 @@ export class TranscriptionStore {
     };
 
     job.updatedAt = new Date().toISOString();
+    this.jobs.set(id, job);
+    saveJobToDisk(job);
     return job;
   }
 
   /**
-   * Busca um job pelo ID.
+   * Busca um job pelo ID (em memória ou no disco temporário).
    * @param {string} id 
    * @returns {Object|null}
    */
   getJob(id) {
-    return this.jobs.get(id) || null;
+    let job = this.jobs.get(id);
+    if (!job) {
+      job = readJobFromDisk(id);
+      if (job) {
+        this.jobs.set(id, job);
+      }
+    }
+    return job || null;
   }
 
   /**
@@ -83,7 +141,7 @@ export class TranscriptionStore {
    * @param {Object} value 
    */
   completeJob(id, value) {
-    const job = this.jobs.get(id);
+    const job = this.getJob(id);
     if (!job) return null;
 
     const timeStr = new Date().toLocaleTimeString('pt-BR');
@@ -99,6 +157,8 @@ export class TranscriptionStore {
       logs: updatedLogs
     };
     job.updatedAt = new Date().toISOString();
+    this.jobs.set(id, job);
+    saveJobToDisk(job);
     return job;
   }
 
@@ -108,7 +168,7 @@ export class TranscriptionStore {
    * @param {string} errorMessage 
    */
   failJob(id, errorMessage) {
-    const job = this.jobs.get(id);
+    const job = this.getJob(id);
     if (!job) return null;
 
     const timeStr = new Date().toLocaleTimeString('pt-BR');
@@ -123,6 +183,8 @@ export class TranscriptionStore {
       logs: updatedLogs
     };
     job.updatedAt = new Date().toISOString();
+    this.jobs.set(id, job);
+    saveJobToDisk(job);
     return job;
   }
 
@@ -132,11 +194,13 @@ export class TranscriptionStore {
    * @param {Object} newValue 
    */
   updateJobValue(id, newValue) {
-    const job = this.jobs.get(id);
+    const job = this.getJob(id);
     if (!job) return null;
 
     job.value = newValue;
     job.updatedAt = new Date().toISOString();
+    this.jobs.set(id, job);
+    saveJobToDisk(job);
     return job;
   }
 
@@ -145,7 +209,18 @@ export class TranscriptionStore {
    */
   clear() {
     this.jobs.clear();
+    try {
+      if (fs.existsSync(JOBS_DIR)) {
+        const files = fs.readdirSync(JOBS_DIR);
+        for (const file of files) {
+          if (file.endsWith('.json')) {
+            fs.unlinkSync(path.join(JOBS_DIR, file));
+          }
+        }
+      }
+    } catch (_) {}
   }
 }
 
 export const transcriptionStore = new TranscriptionStore();
+

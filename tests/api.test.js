@@ -189,4 +189,23 @@ test('Fastify HTTP API - AI Harness Spec 03 Contracts', async (t) => {
     assert.equal(xlsxRes.statusCode, 200);
     assert.match(xlsxRes.headers['content-type'], /spreadsheetml/);
   });
+
+  await t.test('GET /api/transcricoes/:id - Recupera job persistido no disco após limpeza da memória', async () => {
+    const job = transcriptionStore.createJob('holerite');
+    transcriptionStore.completeJob(job.id, { test: 'disk_persistence' });
+
+    // Simula reinicialização do contêiner/memória sem apagar o arquivo do disco
+    transcriptionStore.jobs.clear();
+
+    const getRes = await app.inject({
+      method: 'GET',
+      url: `/api/transcricoes/${job.id}`
+    });
+
+    assert.equal(getRes.statusCode, 200);
+    const json = getRes.json();
+    assert.equal(json.id, job.id);
+    assert.equal(json.status, 'concluido');
+    assert.deepEqual(json.value, { test: 'disk_persistence' });
+  });
 });
