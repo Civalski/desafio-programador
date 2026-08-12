@@ -7,14 +7,14 @@ import { getMockData } from '../mocks/mockProvider.js';
 
 export class AIProviderService {
   async parseDocument(filePath, documentType, options = {}) {
+    if (geminiService.isReady()) {
+      console.log('⚡ Utilizando provedor Gemini (Visão Nativa PDF) para processamento...');
+      return await geminiService.parseDocument(filePath, documentType, options);
+    }
+
     if (openaiService.isReady()) {
       console.log('⚡ Utilizando provedor OpenAI para processamento do documento...');
       return await openaiService.parseDocument(filePath, documentType, options);
-    }
-
-    if (geminiService.isReady()) {
-      console.log('⚡ Utilizando provedor Gemini para processamento do documento...');
-      return await geminiService.parseDocument(filePath, documentType, options);
     }
 
     console.warn('⚠️ Nenhum provedor de IA (OpenAI / Gemini) com chave ativa. Utilizando extrator local em PDF...');
