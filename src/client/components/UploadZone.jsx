@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 
 export function UploadZone({ onUpload, isProcessing }) {
   const [selectedFile, setSelectedFile] = useState(null);
-  const [tipo, setTipo] = useState('cartao-ponto');
+  const [tipo] = useState('holerite');
   const [isDragOver, setIsDragOver] = useState(false);
   const [error, setError] = useState('');
 
@@ -44,14 +44,14 @@ export function UploadZone({ onUpload, isProcessing }) {
       onDragLeave={() => setIsDragOver(false)}
       onDrop={handleDrop}
     >
-      <h2 style={{ fontSize: '1.25rem', fontWeight: 600, letterSpacing: '-0.01em' }}>
+      <h2 className={'upload-title'}>
         Selecionar Documento para Transcrição
       </h2>
-      <p style={{ color: 'var(--text-muted)', marginTop: '0.4rem', fontSize: '0.875rem' }}>
+      <p className={'upload-description'}>
         Arraste seu arquivo PDF até aqui ou clique para selecionar no seu computador.
       </p>
 
-      <form onSubmit={handleSubmit} style={{ marginTop: '1.5rem', maxWidth: '560px', margin: '1.5rem auto 0 auto' }}>
+      <form onSubmit={handleSubmit} className={'upload-form'}>
         <input 
           type="file" 
           id="pdf-input" 
@@ -63,32 +63,6 @@ export function UploadZone({ onUpload, isProcessing }) {
         <label htmlFor="pdf-input" className="btn-secondary" style={{ display: 'inline-block', cursor: 'pointer', marginBottom: '1.25rem' }}>
           {selectedFile ? `📄 ${selectedFile.name}` : 'Escolher Arquivo PDF'}
         </label>
-
-        <div>
-          <div className="segmented-control">
-            <label className={`radio-btn ${tipo === 'cartao-ponto' ? 'selected' : ''}`}>
-              <input 
-                type="radio" 
-                name="tipo" 
-                value="cartao-ponto" 
-                checked={tipo === 'cartao-ponto'} 
-                onChange={() => setTipo('cartao-ponto')} 
-              />
-              Cartão de Ponto
-            </label>
-
-            <label className={`radio-btn ${tipo === 'holerite' ? 'selected' : ''}`}>
-              <input 
-                type="radio" 
-                name="tipo" 
-                value="holerite" 
-                checked={tipo === 'holerite'} 
-                onChange={() => setTipo('holerite')} 
-              />
-              Holerite (Payroll)
-            </label>
-          </div>
-        </div>
 
         {error && (
           <p style={{ color: '#991b1b', marginTop: '0.75rem', fontSize: '0.85rem', background: '#fef2f2', border: '1px solid #fecaca', padding: '0.5rem', borderRadius: '6px' }}>
@@ -112,7 +86,7 @@ export function UploadZone({ onUpload, isProcessing }) {
               <span className="spinner"></span> Processando Transcrição...
             </span>
           ) : (
-            'Transcrever Documento'
+            'Transcrever Holerite (Payroll)'
           )}
         </button>
       </form>

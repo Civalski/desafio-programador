@@ -7,7 +7,7 @@ import { TranscriptionProgress } from './components/TranscriptionProgress.jsx';
 
 export default function App() {
   const [uploadedFile, setUploadedFile] = useState(null);
-  const [tipo, setTipo] = useState('cartao-ponto');
+  const [tipo, setTipo] = useState('holerite');
   const [jobId, setJobId] = useState(null);
   const [jobStatus, setJobStatus] = useState('idle');
   const [jobProgress, setJobProgress] = useState(null);
@@ -111,7 +111,7 @@ export default function App() {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+    <div className={'app-shell'}>
       <header className="app-header">
         <div className="app-brand">
           <div>
