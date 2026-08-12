@@ -6,6 +6,7 @@ import {
   splitRegionHorizontally 
 } from './payslipSegmenter.js';
 import { mergeFields, mergeBases } from './horizontalMerger.js';
+import { detectFichaFinanceira, segmentAllMonthBlocks, extractBlockDataLocal } from './fichaFinanceiraSegmenter.js';
 
 const pdfExtract = new PDFExtract();
 
@@ -170,6 +171,24 @@ export async function extractPayrollLocalPdf(filePath) {
       resolve(res);
     });
   });
+
+  const isFicha = detectFichaFinanceira(data.pages);
+
+  if (isFicha) {
+    const blocks = segmentAllMonthBlocks(data.pages);
+    const pages = blocks.map(block => {
+      const localData = extractBlockDataLocal(block.items);
+      return {
+        page: block.pageNum,
+        month: block.month,
+        year: block.year,
+        fields: localData.fields,
+        bases: localData.bases,
+        totals: localData.totals
+      };
+    });
+    return { pages };
+  }
 
   const pages = [];
 

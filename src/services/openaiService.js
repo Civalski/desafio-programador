@@ -5,6 +5,7 @@ import { normalizePayrollResponse } from '../normalizers/payrollNormalizer.js';
 import { normalizeTimeCardResponse } from '../normalizers/timeCardNormalizer.js';
 import { getMockData } from '../mocks/mockProvider.js';
 import { extractPayrollLocalPdf } from '../utils/pdfExtractor.js';
+import { detectFichaFinanceira, segmentAllMonthBlocks } from '../utils/fichaFinanceiraSegmenter.js';
 import { PDFExtract } from 'pdf.js-extract';
 
 const pdfExtract = new PDFExtract();
@@ -91,6 +92,40 @@ Formato JSON estrito:
     { "label": "Nome exato da base (ex: Base INSS)", "value": "Valor R$" }
   ]
 }`;
+
+const PROMPT_FICHA_FINANCEIRA_BLOCK = `Você é um especialista em OCR e estruturação de Fichas Financeiras e Holerites brasileiros.
+Analise o texto deste bloco mensal da Ficha Financeira e extraia TODAS as verbas (Proventos e Descontos), Totais e Bases de Cálculo.
+
+ESTRUTURA JSON ESPERADA:
+{
+  "fields": [
+    {
+      "code": "código da verba (ex: 001, 091, 511)",
+      "label": "descrição da verba (ex: Salário Base, Hr Adic Pericul, INSS Normal)",
+      "reference": "referência ou horas/dias/percentual (ex: 220,00, 146,67, 11%)",
+      "value": "valor monetário (ex: 1.620,65)",
+      "type": "provento" ou "desconto"
+    }
+  ],
+  "bases": [
+    {
+      "label": "nome da base ou valor de referência (ex: Base INSS, Base IRRF, Base FGTS, FGTS do Mês)",
+      "value": "valor monetário (ex: 1.260,65)"
+    }
+  ],
+  "totals": {
+    "totalAdditions": "Total Proventos / Rendimentos",
+    "totalDeductions": "Total Descontos",
+    "netValue": "Valor Líquido no Mês"
+  }
+}
+
+REGRAS:
+- Proventos (créditos) devem ter "type": "provento".
+- Descontos (débitos) devem ter "type": "desconto".
+- NÃO omita nenhuma verba do bloco.
+- NÃO invente dados.
+`;
 export class OpenAIService {
   constructor(apiKey = config.openaiApiKey) {
     this.apiKey = apiKey;
@@ -209,6 +244,74 @@ export class OpenAIService {
 
       if (this.isReady()) {
         try {
+          // Extrai o PDF bruto via pdfExtract para verificar se é Ficha Financeira
+          const pdfRawData = await new Promise((resolve, reject) => {
+            pdfExtract.extract(filePath, {}, (err, res) => {
+              if (err) return reject(err);
+              resolve(res);
+            });
+          });
+
+          const isFicha = detectFichaFinanceira(pdfRawData.pages);
+
+          if (isFicha) {
+            const blocks = segmentAllMonthBlocks(pdfRawData.pages);
+            console.log(`📄 Documento identificado como Ficha Financeira: ${blocks.length} blocos mensais detectados.`);
+
+            const blockPromises = blocks.map(async (block, bIdx) => {
+              try {
+                console.log(`🔍 [OpenAI] Extraindo bloco ${bIdx + 1}/${blocks.length}: Competência ${block.month}/${block.year} (Pág ${block.pageNum})...`);
+
+                const completionJson = await this.generateCompletionWithFallback([
+                  { role: 'system', content: PROMPT_FICHA_FINANCEIRA_BLOCK },
+                  {
+                    role: 'user',
+                    content: `COMPETÊNCIA DO BLOCO: ${block.month}/${block.year}\n\nTEXTO DO BLOCO:\n${block.rawText}`
+                  }
+                ]);
+
+                let parsed = {};
+                try {
+                  parsed = JSON.parse(completionJson);
+                } catch {
+                  parsed = {};
+                }
+
+                const fields = (parsed.fields || []).map(f => ({
+                  code: f.code || '',
+                  label: f.label || '',
+                  reference: f.reference || '',
+                  value: f.value || '',
+                  type: f.type || 'provento'
+                }));
+
+                const result = {
+                  page: block.pageNum,
+                  month: block.month,
+                  year: block.year,
+                  fields,
+                  totals: parsed.totals || {},
+                  bases: parsed.bases || []
+                };
+
+                console.log(`✅ Bloco ${block.month}/${block.year} (Pág ${block.pageNum}): Verbas: ${fields.length} | Bases: ${result.bases.length}`);
+                return result;
+              } catch (err) {
+                console.warn(`⚠️ Falha na extração do bloco ${block.month}/${block.year} via OpenAI:`, err.message);
+                return null;
+              }
+            });
+
+            const extractedBlocksRaw = (await Promise.all(blockPromises)).filter(Boolean);
+            const parsedObj = { pages: extractedBlocksRaw };
+            const normalized = normalizePayrollResponse(parsedObj);
+
+            if (normalized.pages?.length > 0) {
+              return normalized;
+            }
+          }
+
+          // Caso padrão (Holerite comum por página)
           const pdfPages = await this.extractPdfTextPages(filePath);
           console.log(`📄 Processando ${pdfPages.length} páginas de holerite em paralelo via OpenAI...`);
 
