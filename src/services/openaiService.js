@@ -177,6 +177,8 @@ FORMATO JSON EXIGIDO:
         } catch (apiErr) {
           console.warn(`⚠️ API da OpenAI falhou (${apiErr.message}). Utilizando extrator local em PDF...`);
         }
+      }
+
       // Fallback para o extrator local
       const localResult = await extractPayrollLocalPdf(filePath);
       return normalizePayrollResponse(localResult);
