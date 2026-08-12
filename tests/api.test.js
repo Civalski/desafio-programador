@@ -29,6 +29,24 @@ test('Fastify HTTP API - AI Harness Spec 03 Contracts', async (t) => {
     assert.deepEqual(res.json(), { status: 'ok' });
   });
 
+  await t.test('POST /api/login - Valida senha abacate123', async () => {
+    const resSuccess = await app.inject({
+      method: 'POST',
+      url: '/api/login',
+      payload: { password: 'abacate123' }
+    });
+    assert.equal(resSuccess.statusCode, 200);
+    assert.equal(resSuccess.json().ok, true);
+
+    const resFail = await app.inject({
+      method: 'POST',
+      url: '/api/login',
+      payload: { password: 'errada' }
+    });
+    assert.equal(resFail.statusCode, 401);
+    assert.equal(resFail.json().ok, false);
+  });
+
   await t.test('POST /api/transcricoes - Rejeita requisição não-multipart com 400', async () => {
     const res = await app.inject({
       method: 'POST',

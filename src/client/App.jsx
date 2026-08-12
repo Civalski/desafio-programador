@@ -4,8 +4,13 @@ import { PdfViewer } from './components/PdfViewer.jsx';
 import { EditableTable } from './components/EditableTable.jsx';
 import { ExportBar } from './components/ExportBar.jsx';
 import { TranscriptionProgress } from './components/TranscriptionProgress.jsx';
+import { LoginForm } from './components/LoginForm.jsx';
 
 export default function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    return sessionStorage.getItem('quick_filler_authenticated') === 'true';
+  });
+
   const [uploadedFile, setUploadedFile] = useState(null);
   const [tipo, setTipo] = useState('holerite');
   const [jobId, setJobId] = useState(null);
@@ -16,7 +21,7 @@ export default function App() {
 
   // Polling de status do job assíncrono
   useEffect(() => {
-    if (!jobId || jobStatus !== 'processando') return;
+    if (!isAuthenticated || !jobId || jobStatus !== 'processando') return;
 
     const interval = setInterval(async () => {
       try {
@@ -46,7 +51,7 @@ export default function App() {
     }, 500);
 
     return () => clearInterval(interval);
-  }, [jobId, jobStatus]);
+  }, [isAuthenticated, jobId, jobStatus]);
 
   const handleUpload = async (file, documentType) => {
     setUploadedFile(file);
@@ -77,8 +82,18 @@ export default function App() {
         throw new Error(errJson.erro || 'Erro ao enviar arquivo.');
       }
 
-      const { id } = await res.json();
-      setJobId(id);
+      const resJson = await res.json();
+
+      if (resJson.status === 'concluido') {
+        setExtractedData(resJson.value);
+        setJobId(resJson.id);
+        setJobStatus('concluido');
+      } else if (resJson.status === 'erro') {
+        setErrorMessage(resJson.erro || 'Falha ao processar documento.');
+        setJobStatus('erro');
+      } else {
+        setJobId(resJson.id);
+      }
     } catch (err) {
       console.error('Erro de upload:', err);
       setErrorMessage(err.message);
@@ -110,48 +125,83 @@ export default function App() {
     setErrorMessage('');
   };
 
+  const handleLogout = () => {
+    sessionStorage.removeItem('quick_filler_authenticated');
+    setIsAuthenticated(false);
+    handleReset();
+  };
+
   return (
-    <div className={'app-shell'}>
-      <main className="container" style={{ paddingTop: '2.5rem' }}>
-        {jobStatus === 'idle' && (
-          <UploadZone onUpload={handleUpload} isProcessing={false} />
-        )}
+    <div className="app-shell">
+      <header className="app-header">
+        <div className="app-brand">
+          <span className="app-logo">QUICK FILLER</span>
+          <span className="badge-mock">
+            {isAuthenticated ? '🔒 Acesso Autenticado' : '🔑 Login Requerido'}
+          </span>
+        </div>
 
-        {jobStatus === 'processando' && (
-          <TranscriptionProgress 
-            file={uploadedFile} 
-            tipo={tipo} 
-            progress={jobProgress} 
-          />
+        {isAuthenticated && (
+          <button 
+            className="btn-secondary logout-btn" 
+            onClick={handleLogout}
+            title="Encerrar sessão"
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+              <polyline points="16 17 21 12 16 7"></polyline>
+              <line x1="21" y1="12" x2="9" y2="12"></line>
+            </svg>
+            Sair
+          </button>
         )}
+      </header>
 
-        {jobStatus === 'erro' && (
-          <div className="upload-card">
-            <h2 style={{ fontSize: '1.15rem', fontWeight: 600, color: 'var(--text-main)' }}>Erro na Transcrição</h2>
-            <p style={{ color: 'var(--text-muted)', margin: '1rem 0', fontSize: '0.875rem' }}>{errorMessage}</p>
-            <button className="btn-secondary" onClick={handleReset}>Tentar Novamente</button>
-          </div>
-        )}
+      {!isAuthenticated ? (
+        <LoginForm onLoginSuccess={() => setIsAuthenticated(true)} />
+      ) : (
+        <main className="container" style={{ paddingTop: '2.5rem' }}>
+          {jobStatus === 'idle' && (
+            <UploadZone onUpload={handleUpload} isProcessing={false} />
+          )}
 
-        {jobStatus === 'concluido' && (
-          <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
-            <div className="split-view">
-              <PdfViewer file={uploadedFile} />
-              <EditableTable 
-                data={extractedData} 
-                tipo={tipo} 
-                onChangeData={setExtractedData} 
+          {jobStatus === 'processando' && (
+            <TranscriptionProgress 
+              file={uploadedFile} 
+              tipo={tipo} 
+              progress={jobProgress} 
+            />
+          )}
+
+          {jobStatus === 'erro' && (
+            <div className="upload-card">
+              <h2 style={{ fontSize: '1.15rem', fontWeight: 600, color: 'var(--text-main)' }}>Erro na Transcrição</h2>
+              <p style={{ color: 'var(--text-muted)', margin: '1rem 0', fontSize: '0.875rem' }}>{errorMessage}</p>
+              <button className="btn-secondary" onClick={handleReset}>Tentar Novamente</button>
+            </div>
+          )}
+
+          {jobStatus === 'concluido' && (
+            <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+              <div className="split-view">
+                <PdfViewer file={uploadedFile} />
+                <EditableTable 
+                  data={extractedData} 
+                  tipo={tipo} 
+                  onChangeData={setExtractedData} 
+                />
+              </div>
+
+              <ExportBar 
+                jobId={jobId} 
+                onSave={handleSaveData} 
+                onReset={handleReset} 
               />
             </div>
-
-            <ExportBar 
-              jobId={jobId} 
-              onSave={handleSaveData} 
-              onReset={handleReset} 
-            />
-          </div>
-        )}
-      </main>
+          )}
+        </main>
+      )}
     </div>
   );
 }
+

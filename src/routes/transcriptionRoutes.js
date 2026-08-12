@@ -11,6 +11,15 @@ import { generateExport } from '../utils/exportUtils.js';
  * @param {import('fastify').FastifyInstance} fastify 
  */
 export async function transcriptionRoutes(fastify) {
+  // POST /api/login - Validação simples de senha
+  fastify.post('/api/login', async (request, reply) => {
+    const { password } = request.body || {};
+    if (password === 'abacate123') {
+      return reply.status(200).send({ ok: true, message: 'Autenticado com sucesso' });
+    }
+    return reply.status(401).send({ ok: false, erro: 'Senha incorreta. Tente novamente.' });
+  });
+
   // 5. GET /healthz - Endpoint de Healthcheck
   fastify.get('/healthz', async (request, reply) => {
     return reply.status(200).send({ status: 'ok' });
@@ -87,18 +96,23 @@ export async function transcriptionRoutes(fastify) {
     const processPromise = processJob();
 
     if (process.env.VERCEL) {
-      // Na Vercel, waitUntil instrui o runtime Serverless a manter o processo ativo em background
-      // após enviar o HTTP 202 Accepted. Isso evita estouro de 504 Timeout em arquivos grandes!
-      try {
-        waitUntil(processPromise);
-      } catch (_) {
-        await processPromise;
-      }
+      // Em ambiente Serverless (Vercel), aguardamos a conclusão do processamento para retornar
+      // o resultado completo no próprio POST, evitando 404s por distribuição de carga entre lambdas stateless.
+      await processPromise;
+      const updatedJob = transcriptionStore.getJob(job.id) || job;
+      return reply.status(200).send({
+        id: updatedJob.id,
+        tipo: updatedJob.tipo,
+        status: updatedJob.status,
+        progress: updatedJob.progress,
+        erro: updatedJob.erro,
+        value: updatedJob.value
+      });
     } else {
       setImmediate(() => processPromise);
     }
 
-    // Retorna HTTP 202 Accepted imediatamente com o ID
+    // Em ambiente local/desenvolvimento, retorna HTTP 202 Accepted imediatamente para polling
     return reply.status(202).send({
       id: job.id
     });
