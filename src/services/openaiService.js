@@ -40,10 +40,10 @@ export class OpenAIService {
   }
 
   /**
-   * Executa chamada com fallback de modelos (gpt-4o -> gpt-4o-mini)
+   * Executa chamada com fallback de modelos (gpt-5.6-luna -> gpt-4o -> gpt-4o-mini)
    */
   async generateCompletionWithFallback(messages, options = {}) {
-    const models = ['gpt-4o', 'gpt-4o-mini'];
+    const models = ['gpt-5.6-luna', 'gpt-4o', 'gpt-4o-mini'];
     let lastError;
 
     for (const model of models) {
@@ -53,9 +53,12 @@ export class OpenAIService {
           model,
           messages,
           response_format: { type: 'json_object' },
-          temperature: 0.1,
           ...options
         };
+
+        if (!model.includes('gpt-5') && !model.includes('luna') && !model.includes('nano') && !model.startsWith('o')) {
+          requestParams.temperature = 0.1;
+        }
 
         const response = await this.client.chat.completions.create(requestParams);
         return response.choices[0]?.message?.content || '{}';
