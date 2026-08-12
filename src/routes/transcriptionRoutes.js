@@ -66,7 +66,8 @@ export async function transcriptionRoutes(fastify) {
     setImmediate(async () => {
       try {
         const docTypeMapping = tipo === 'cartao-ponto' ? 'time_card' : 'payroll';
-        const parsedResult = await aiProviderService.parseDocument(tempFilePath, docTypeMapping);
+        const onProgress = (progUpdate) => transcriptionStore.updateJobProgress(job.id, progUpdate);
+        const parsedResult = await aiProviderService.parseDocument(tempFilePath, docTypeMapping, { onProgress });
 
         // Se o resultado for válido, conclui o job
         transcriptionStore.completeJob(job.id, parsedResult);
@@ -104,6 +105,7 @@ export async function transcriptionRoutes(fastify) {
       id: job.id,
       tipo: job.tipo,
       status: job.status,
+      progress: job.progress,
       erro: job.erro,
       value: job.value
     });

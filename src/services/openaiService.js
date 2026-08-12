@@ -4,7 +4,7 @@ import { config } from '../config/env.js';
 import { normalizePayrollResponse } from '../normalizers/payrollNormalizer.js';
 import { normalizeTimeCardResponse } from '../normalizers/timeCardNormalizer.js';
 import { getMockData } from '../mocks/mockProvider.js';
-import { extractPayrollLocalPdf } from '../utils/pdfExtractor.js';
+import { extractPayrollLocalPdf, rasterizePdfPages } from '../utils/pdfExtractor.js';
 import { detectFichaFinanceira, segmentAllMonthBlocks } from '../utils/fichaFinanceiraSegmenter.js';
 import { analyzePageDensity, selectExtractionStrategy } from '../utils/densityAnalyzer.js';
 import { PDFExtract } from 'pdf.js-extract';
@@ -193,6 +193,20 @@ Formato JSON estrito:
   ]
 }`;
 
+function parseCurrency(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const normalized = String(value).replace(/[^\d,.-]/g, '').replace(/\./g, '').replace(',', '.');
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export function hasConsistentPayrollTotals(totals, tolerance = 0.02) {
+  const additions = parseCurrency(totals?.totalAdditions);
+  const deductions = parseCurrency(totals?.totalDeductions);
+  const netValue = parseCurrency(totals?.netValue);
+  return additions !== null && deductions !== null && netValue !== null
+    && Math.abs((additions - deductions) - netValue) <= tolerance;
+}
 export class OpenAIService {
   constructor(apiKey = config.openaiApiKey) {
     this.apiKey = apiKey;
@@ -295,7 +309,8 @@ export class OpenAIService {
       return {
         pageNum,
         text: textLines.join('\n'),
-        rawContent: p.content || []
+        rawContent: p.content || [],
+        density: analyzePageDensity(p.content || [])
       };
     });
   }
@@ -305,10 +320,13 @@ export class OpenAIService {
    * Processa página por página para garantir 100% de cobertura sem omissão de verbas.
    */
   async parsePayroll(filePath, options = {}) {
+    const onProgress = options.onProgress || (() => {});
     try {
       if (!fs.existsSync(filePath)) {
         throw new Error(`Arquivo não encontrado: ${filePath}`);
       }
+
+      onProgress({ current: 0, total: 0, percentage: 5, message: 'Lendo arquivo PDF e analisando layout...', log: 'Arquivo PDF carregado no servidor. Analisando estrutura...' });
 
       if (this.isReady() && !options.useMock) {
         try {
@@ -325,7 +343,15 @@ export class OpenAIService {
           if (isFicha) {
             const blocks = segmentAllMonthBlocks(pdfRawData.pages);
             console.log(`📄 Documento identificado como Ficha Financeira: ${blocks.length} blocos mensais detectados.`);
+            onProgress({
+              current: 0,
+              total: blocks.length,
+              percentage: 10,
+              message: `Ficha Financeira detectada (${blocks.length} blocos mensais)`,
+              log: `Ficha Financeira identificada: ${blocks.length} bloco(s) mensais para extracao.`
+            });
 
+            let completedBlocks = 0;
             const blockPromises = blocks.map(async (block, bIdx) => {
               try {
                 console.log(`🔍 [OpenAI] Extraindo bloco ${bIdx + 1}/${blocks.length}: Competência ${block.month}/${block.year} (Pág ${block.pageNum})...`);
@@ -362,10 +388,27 @@ export class OpenAIService {
                   bases: parsed.bases || []
                 };
 
-                console.log(`✅ Bloco ${block.month}/${block.year} (Pág ${block.pageNum}): Verbas: ${fields.length} | Bases: ${result.bases.length}`);
+                completedBlocks++;
+                const pct = Math.min(95, Math.round(10 + (completedBlocks / blocks.length) * 85));
+                  log: `Bloco ${block.month}/${block.year}: ${fields.length} verbas e ${result.bases.length} bases extraidas.`
+                onProgress({
+                  current: completedBlocks,
+                  total: blocks.length,
+                  percentage: pct,
+                  message: `Bloco ${completedBlocks} de ${blocks.length} concluído (${block.month}/${block.year})`,
+                  log: `Bloco ${block.month}/${block.year}: ${fields.length} verbas e ${result.bases.length} bases extraidas.`
+                });
+
                 return result;
               } catch (err) {
                 console.warn(`⚠️ Falha na extração do bloco ${block.month}/${block.year} via OpenAI:`, err.message);
+                completedBlocks++;
+                onProgress({
+                  current: completedBlocks,
+                  total: blocks.length,
+                  message: `Falha na extração do bloco ${block.month}/${block.year}`,
+                  log: `Erro no bloco ${block.month}/${block.year}: ${err.message}`
+                });
                 return null;
               }
             });
@@ -381,14 +424,47 @@ export class OpenAIService {
 
           // Caso padrão (Holerite comum por página)
           const pdfPages = await this.extractPdfTextPages(filePath);
-          console.log(`📄 Processando ${pdfPages.length} páginas de holerite em paralelo via OpenAI...`);
+          const totalPages = pdfPages.length;
+          const scannedPageNumbers = pdfPages
+            .filter(page => selectExtractionStrategy(page.density, false) === 'VISION_SINGLE_PASS')
+            .map(page => page.pageNum);
+          let scannedImages = new Map();
 
+          if (scannedPageNumbers.length) {
+            onProgress({
+              current: 0,
+              total: totalPages,
+              percentage: 10,
+              message: 'Imagem escaneada detectada. Convertendo paginas para analise visual...',
+              log: 'Imagem escaneada detectada. Convertendo paginas para analise visual...'
+            });
+            scannedImages = await rasterizePdfPages(filePath, scannedPageNumbers, { scale: 4 });
+          }
+          console.log(`📄 Processando ${totalPages} páginas de holerite em paralelo via OpenAI...`);
+          onProgress({
+            current: 0,
+            total: totalPages,
+            percentage: 10,
+            message: `PDF possui ${totalPages} página(s). Extraindo dados via OpenAI...`,
+            log: `PDF possui ${totalPages} pagina(s). Iniciando analise com IA...`
+          });
+
+          let completedPages = 0;
           const pagePromises = pdfPages.map(async (pageObj) => {
             try {
+              const density = pageObj.density || analyzePageDensity(pageObj.rawContent);
+              const strategy = selectExtractionStrategy(density, false);
+              const isVision = strategy === 'VISION_SINGLE_PASS';
+              const inputContent = isVision
+                ? [
+                    { type: 'text', text: 'Analise esta imagem de holerite e retorne somente o JSON solicitado.' },
+                    { type: 'image_url', image_url: { url: scannedImages.get(pageObj.pageNum)?.dataUrl, detail: 'high' } }
+                  ]
+                : pageObj.text;
               const runPrompt = async (systemPrompt) => {
                 const completionJson = await this.generateCompletionWithFallback([
                   { role: 'system', content: systemPrompt },
-                  { role: 'user', content: pageObj.text }
+                  { role: 'user', content: inputContent }
                 ]);
                 try {
                   return JSON.parse(completionJson);
@@ -397,22 +473,26 @@ export class OpenAIService {
                 }
               };
 
-              const density = analyzePageDensity(pageObj.rawContent);
-              const strategy = selectExtractionStrategy(density, false);
-
               let unifiedData = {};
               let totalsData = {};
 
-              if (strategy === 'SINGLE_PASS') {
-                console.log(`📊 Página ${pageObj.pageNum} (${density.charCount} chars, Tier SINGLE_PASS): Executando 1 única chamada IA para economizar tokens...`);
+              if (strategy === 'SINGLE_PASS' || isVision) {
+                const source = isVision ? 'VISION_SINGLE_PASS' : 'SINGLE_PASS';
+                console.log(`Pagina ${pageObj.pageNum} (${density.charCount} chars, ${source}): executando uma chamada IA.`);
                 const singlePassData = await runPrompt(PROMPT_SINGLE_PASS);
                 unifiedData = singlePassData || {};
                 totalsData = {
                   totals: singlePassData.totals || {},
                   bases: singlePassData.bases || []
                 };
+
+                if (!hasConsistentPayrollTotals(totalsData.totals)) {
+                  console.log(`Pagina ${pageObj.pageNum}: totais divergentes ou ausentes; refinando rodape.`);
+                  const refinedTotals = await runPrompt(PROMPT_TOTALS);
+                  totalsData = refinedTotals || totalsData;
+                }
               } else {
-                console.log(`🔍 Página ${pageObj.pageNum} (${density.charCount} chars, Tier DUAL_PASS): Extraindo com Prompt Unificado + Totais...`);
+                console.log(`Pagina ${pageObj.pageNum} (${density.charCount} chars, DUAL_PASS): extraindo dados e totais.`);
                 const [uData, tData] = await Promise.all([
                   runPrompt(PROMPT_UNIFIED),
                   runPrompt(PROMPT_TOTALS)
@@ -420,7 +500,6 @@ export class OpenAIService {
                 unifiedData = uData || {};
                 totalsData = tData || {};
               }
-
               // Lê competência do formato novo (competency.month/year)
               const competency = unifiedData.competency || {};
               const month = competency.month || unifiedData.month || '';
@@ -449,15 +528,35 @@ export class OpenAIService {
                 bases: totalsData.bases || []
               };
 
+              completedPages++;
+              const pct = Math.min(95, Math.round(10 + (completedPages / totalPages) * 85));
               console.log(`✅ Página ${pageObj.pageNum}: Competência ${month}/${year} | Verbas: ${fields.length} | Bases: ${result.bases.length}`);
+              onProgress({
+                current: completedPages,
+                total: totalPages,
+                percentage: pct,
+                message: `Página ${completedPages} de ${totalPages} concluída`,
+                log: `${isVision ? 'Visao IA' : 'IA'} - Pagina ${pageObj.pageNum}: ${fields.length} verbas extraidas via modelo.`
+              });
+
               return result;
             } catch (err) {
               console.warn(`⚠️ Falha na extração da página ${pageObj.pageNum} via OpenAI:`, err.message);
+              completedPages++;
+              onProgress({
+                current: completedPages,
+                total: totalPages,
+                message: `Falha na extração da página ${pageObj.pageNum}`,
+                log: `Erro na pagina ${pageObj.pageNum}: ${err.message}`
+              });
               return null;
             }
           });
 
           const extractedPagesRaw = (await Promise.all(pagePromises)).filter(Boolean);
+          if (scannedPageNumbers.length && extractedPagesRaw.length === 0) {
+            throw new Error('VISION_EXTRACTION_UNAVAILABLE: nenhuma pagina escaneada foi extraida pela API.');
+          }
           const parsedObj = { pages: extractedPagesRaw };
           const normalized = normalizePayrollResponse(parsedObj);
 
@@ -465,12 +564,14 @@ export class OpenAIService {
             return normalized;
           }
         } catch (apiErr) {
+          if (apiErr.message?.startsWith('VISION_EXTRACTION_UNAVAILABLE:')) throw apiErr;
           console.warn(`⚠️ API da OpenAI falhou (${apiErr.message}). Utilizando extrator local em PDF...`);
+          onProgress({ current: 0, total: 0, percentage: 10, message: 'Utilizando extrator local de PDF...', log: `OpenAI indisponivel (${apiErr.message}). Recorrendo ao extrator local.` });
         }
       }
 
       // Fallback para o extrator local
-      const localResult = await extractPayrollLocalPdf(filePath);
+      const localResult = await extractPayrollLocalPdf(filePath, options);
       return normalizePayrollResponse(localResult);
 
     } catch (error) {

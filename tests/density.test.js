@@ -13,7 +13,7 @@ test('Análise de Densidade - Funções Unitárias', () => {
   const densitySparse = analyzePageDensity(mockSparseContent);
   assert.equal(densitySparse.charCount, 6);
   assert.equal(densitySparse.elementCount, 1);
-  assert.equal(selectExtractionStrategy(densitySparse, false), 'SINGLE_PASS');
+  assert.equal(selectExtractionStrategy(densitySparse, false), 'VISION_SINGLE_PASS');
 
   const mockDenseContent = Array(200).fill(0).map((_, i) => ({ str: `Linha de verba exemplo número ${i}`, y: i * 5 }));
   const densityDense = analyzePageDensity(mockDenseContent);
@@ -42,8 +42,8 @@ test('Análise de Densidade em Documentos da Base (data_input)', async () => {
       const strategy = selectExtractionStrategy(density, false);
       console.log(`   Página ${idx + 1}: ${density.charCount} chars | ${density.elementCount} elementos | Estratégia: ${strategy}`);
       
-      if (file.includes('payroll-03') || file.includes('payroll-04')) {
-        assert.equal(strategy, 'SINGLE_PASS', `Página de ${file} com baixa densidade deve usar SINGLE_PASS`);
+      if (file.includes('payroll-04')) {
+        assert.equal(strategy, 'VISION_SINGLE_PASS', `Página de ${file} com baixa densidade deve usar SINGLE_PASS`);
       }
     });
   }

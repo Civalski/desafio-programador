@@ -23,6 +23,13 @@ export class TranscriptionStore {
       id,
       tipo,
       status: 'processando',
+      progress: {
+        current: 0,
+        total: 0,
+        percentage: 0,
+        message: 'Iniciando leitura do documento...',
+        logs: [`[${new Date().toLocaleTimeString('pt-BR')}] 🚀 Trabalho de transcrição iniciado (ID: ${id})`]
+      },
       erro: null,
       value: null,
       createdAt: now,
@@ -30,6 +37,34 @@ export class TranscriptionStore {
     };
 
     this.jobs.set(id, job);
+    return job;
+  }
+
+  /**
+   * Atualiza o progresso em tempo real de um job.
+   * @param {string} id 
+   * @param {{ current?: number, total?: number, percentage?: number, message?: string, log?: string }} progressUpdate 
+   */
+  updateJobProgress(id, { current, total, percentage, message, log }) {
+    const job = this.jobs.get(id);
+    if (!job) return null;
+
+    const updatedLogs = [...(job.progress?.logs || [])];
+    if (log && typeof log === 'string') {
+      const timeStr = new Date().toLocaleTimeString('pt-BR');
+      updatedLogs.push(`[${timeStr}] ${log}`);
+    }
+
+    const currentProg = job.progress || {};
+    job.progress = {
+      current: current !== undefined ? current : currentProg.current || 0,
+      total: total !== undefined ? total : currentProg.total || 0,
+      percentage: percentage !== undefined ? percentage : currentProg.percentage || 0,
+      message: message || currentProg.message || 'Processando...',
+      logs: updatedLogs
+    };
+
+    job.updatedAt = new Date().toISOString();
     return job;
   }
 
@@ -51,9 +86,18 @@ export class TranscriptionStore {
     const job = this.jobs.get(id);
     if (!job) return null;
 
+    const timeStr = new Date().toLocaleTimeString('pt-BR');
+    const updatedLogs = [...(job.progress?.logs || []), `[${timeStr}] 🎉 Processamento finalizado com sucesso!`];
+
     job.status = 'concluido';
     job.erro = null;
     job.value = value;
+    job.progress = {
+      ...job.progress,
+      percentage: 100,
+      message: 'Transcrição e processamento concluídos!',
+      logs: updatedLogs
+    };
     job.updatedAt = new Date().toISOString();
     return job;
   }
@@ -67,9 +111,17 @@ export class TranscriptionStore {
     const job = this.jobs.get(id);
     if (!job) return null;
 
+    const timeStr = new Date().toLocaleTimeString('pt-BR');
+    const updatedLogs = [...(job.progress?.logs || []), `[${timeStr}] ❌ Erro: ${errorMessage || 'Falha no processamento'}`];
+
     job.status = 'erro';
     job.erro = errorMessage || 'Erro interno no processamento do documento';
     job.value = null;
+    job.progress = {
+      ...job.progress,
+      message: 'Ocorreu um erro durante o processamento.',
+      logs: updatedLogs
+    };
     job.updatedAt = new Date().toISOString();
     return job;
   }

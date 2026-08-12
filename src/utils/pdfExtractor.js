@@ -1,4 +1,6 @@
 import { PDFExtract } from 'pdf.js-extract';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import fs from 'fs';
 import { 
   segmentPagePayslips, 
@@ -10,6 +12,38 @@ import { detectFichaFinanceira, segmentAllMonthBlocks, extractBlockDataLocal } f
 
 const pdfExtract = new PDFExtract();
 
+/**
+ * Rasteriza páginas escaneadas em um processo isolado. pdf.js-extract já traz
+ * pdf.js 5.5, enquanto pdf-to-img usa 5.4; isolá-los evita o conflito de worker
+ * que ocorria ao converter depois de extrair a camada de texto.
+ */
+export async function rasterizePdfPages(filePath, pageNumbers, options = {}) {
+  if (!pageNumbers.length) return new Map();
+
+  const workerSource = `
+    import { pdf } from 'pdf-to-img';
+    const [filePath, pageNumbersJson, scale] = process.argv.slice(1);
+    const document = await pdf(filePath, { scale: Number(scale) });
+    const pages = JSON.parse(pageNumbersJson);
+    const output = [];
+    for (const pageNumber of pages) {
+      const image = await document.getPage(pageNumber);
+      if (!image) throw new Error('Page not rendered: ' + pageNumber);
+      output.push([pageNumber, Buffer.from(image).toString('base64')]);
+    }
+    process.stdout.write(JSON.stringify(output));
+  `;
+  const runNode = promisify(execFile);
+  const { stdout } = await runNode(process.execPath, [
+    '--input-type=module', '--eval', workerSource, filePath,
+    JSON.stringify(pageNumbers), String(options.scale ?? 4)
+  ], { maxBuffer: options.maxBuffer ?? 100 * 1024 * 1024 });
+
+  return new Map(JSON.parse(stdout).map(([pageNumber, base64]) => [pageNumber, {
+    mimeType: 'image/png',
+    dataUrl: `data:image/png;base64,${base64}`
+  }]));
+}
 /**
  * Extrai competência (mês e ano) de uma linha de texto com alta precisão e sem falsos positivos.
  * @param {string} lineStr 
@@ -160,10 +194,13 @@ function extractRegionData(items = []) {
  * @param {string} filePath 
  * @returns {Promise<Object>} Estrutura { pages: [ { page, month, year, fields: [...], bases: [...] } ] }
  */
-export async function extractPayrollLocalPdf(filePath) {
+export async function extractPayrollLocalPdf(filePath, options = {}) {
+  const onProgress = options.onProgress || (() => {});
   if (!fs.existsSync(filePath)) {
     throw new Error(`Arquivo não encontrado: ${filePath}`);
   }
+
+  onProgress({ current: 0, total: 0, percentage: 10, message: 'Iniciando extração local do PDF...', log: '⚡ Iniciando OCR local das camadas de texto do PDF...' });
 
   const data = await new Promise((resolve, reject) => {
     pdfExtract.extract(filePath, {}, (err, res) => {
@@ -172,12 +209,22 @@ export async function extractPayrollLocalPdf(filePath) {
     });
   });
 
+  const totalPages = data.pages.length;
   const isFicha = detectFichaFinanceira(data.pages);
 
   if (isFicha) {
     const blocks = segmentAllMonthBlocks(data.pages);
-    const pages = blocks.map(block => {
+    onProgress({ current: 0, total: blocks.length, percentage: 20, message: `Ficha Financeira: ${blocks.length} blocos mensais`, log: `📄 Ficha Financeira: ${blocks.length} blocos mensais encontrados.` });
+    const pages = blocks.map((block, bIdx) => {
       const localData = extractBlockDataLocal(block.items);
+      const pct = Math.min(95, Math.round(20 + ((bIdx + 1) / blocks.length) * 75));
+      onProgress({
+        current: bIdx + 1,
+        total: blocks.length,
+        percentage: pct,
+        message: `Bloco ${bIdx + 1} de ${blocks.length} processado (${block.month}/${block.year})`,
+        log: `✅ Bloco ${block.month}/${block.year}: ${localData.fields.length} verbas extraídas localmente.`
+      });
       return {
         page: block.pageNum,
         month: block.month,
@@ -245,6 +292,15 @@ export async function extractPayrollLocalPdf(filePath) {
         bases: finalBases,
         isHorizontalSplit
       });
+    });
+
+    const pct = Math.min(95, Math.round(15 + ((pageIdx + 1) / totalPages) * 80));
+    onProgress({
+      current: pageIdx + 1,
+      total: totalPages,
+      percentage: pct,
+      message: `Página ${pageIdx + 1} de ${totalPages} processada localmente`,
+      log: `✅ Página ${pageIdx + 1}/${totalPages} analisada via extrator local.`
     });
   });
 

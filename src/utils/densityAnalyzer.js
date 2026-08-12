@@ -6,7 +6,7 @@
 
 export function analyzePageDensity(pageContent = []) {
   if (!Array.isArray(pageContent)) {
-    return { charCount: 0, elementCount: 0, lineCount: 0, isSparse: true };
+    return { charCount: 0, elementCount: 0, lineCount: 0, isSparse: true, isScanned: true };
   }
 
   let charCount = 0;
@@ -27,7 +27,8 @@ export function analyzePageDensity(pageContent = []) {
     charCount,
     elementCount,
     lineCount: yBuckets.size,
-    isSparse: charCount < 100
+    isSparse: charCount < 100,
+    isScanned: charCount < 50 || (elementCount <= 4 && charCount < 200)
   };
 }
 
@@ -36,11 +37,15 @@ export function analyzePageDensity(pageContent = []) {
  * 
  * @param {Object} density Métricas calculadas por analyzePageDensity
  * @param {boolean} isFicha Indica se o documento foi identificado como Ficha Financeira
- * @returns {'FICHA_BLOCK' | 'SINGLE_PASS' | 'DUAL_PASS'} Estratégia de extração recomendada
+ * @returns {'FICHA_BLOCK' | 'VISION_SINGLE_PASS' | 'SINGLE_PASS' | 'DUAL_PASS'} Estratégia de extração recomendada
  */
 export function selectExtractionStrategy(density, isFicha = false) {
   if (isFicha) {
     return 'FICHA_BLOCK';
+  }
+
+  if (density.isScanned || density.charCount < 50) {
+    return 'VISION_SINGLE_PASS';
   }
 
   // Documentos pequenos/médios ou simples (< 1500 chars ou < 180 elementos)

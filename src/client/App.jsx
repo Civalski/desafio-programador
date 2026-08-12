@@ -3,12 +3,14 @@ import { UploadZone } from './components/UploadZone.jsx';
 import { PdfViewer } from './components/PdfViewer.jsx';
 import { EditableTable } from './components/EditableTable.jsx';
 import { ExportBar } from './components/ExportBar.jsx';
+import { TranscriptionProgress } from './components/TranscriptionProgress.jsx';
 
 export default function App() {
   const [uploadedFile, setUploadedFile] = useState(null);
   const [tipo, setTipo] = useState('cartao-ponto');
   const [jobId, setJobId] = useState(null);
   const [jobStatus, setJobStatus] = useState('idle');
+  const [jobProgress, setJobProgress] = useState(null);
   const [extractedData, setExtractedData] = useState(null);
   const [errorMessage, setErrorMessage] = useState('');
 
@@ -21,6 +23,10 @@ export default function App() {
         const res = await fetch(`/api/transcricoes/${jobId}`);
         if (!res.ok) throw new Error('Falha ao consultar status da transcrição.');
         const data = await res.json();
+
+        if (data.progress) {
+          setJobProgress(data.progress);
+        }
 
         if (data.status === 'concluido') {
           setExtractedData(data.value);
@@ -46,6 +52,13 @@ export default function App() {
     setUploadedFile(file);
     setTipo(documentType);
     setJobStatus('processando');
+    setJobProgress({
+      current: 0,
+      total: 0,
+      percentage: 0,
+      message: 'Enviando arquivo ao servidor...',
+      logs: [`[${new Date().toLocaleTimeString('pt-BR')}] 📤 Enviando arquivo ao servidor...`]
+    });
     setErrorMessage('');
     setExtractedData(null);
 
@@ -92,6 +105,7 @@ export default function App() {
     setUploadedFile(null);
     setJobId(null);
     setJobStatus('idle');
+    setJobProgress(null);
     setExtractedData(null);
     setErrorMessage('');
   };
@@ -119,13 +133,11 @@ export default function App() {
         )}
 
         {jobStatus === 'processando' && (
-          <div className="upload-card">
-            <div className="spinner" style={{ width: '40px', height: '40px', marginBottom: '1.25rem' }}></div>
-            <h2 style={{ fontSize: '1.15rem', fontWeight: 600 }}>Processando Transcrição...</h2>
-            <p style={{ color: 'var(--text-muted)', marginTop: '0.5rem', fontSize: '0.875rem' }}>
-              Extraindo dados com modelo OpenAI. Por favor, aguarde...
-            </p>
-          </div>
+          <TranscriptionProgress 
+            file={uploadedFile} 
+            tipo={tipo} 
+            progress={jobProgress} 
+          />
         )}
 
         {jobStatus === 'erro' && (
