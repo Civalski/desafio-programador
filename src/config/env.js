@@ -19,7 +19,7 @@ if (fs.existsSync(currentEnvPath)) {
 }
 
 export const config = {
-  geminiApiKey: process.env.GEMINI_API_KEY || '',
+  openaiApiKey: process.env.OPENAI_API_KEY || process.env.OPENAI_SECRET_KEY || '',
   dataInputDir: process.env.DATA_INPUT_DIR 
     ? path.resolve(process.env.DATA_INPUT_DIR)
     : (fs.existsSync(path.resolve(process.cwd(), '../data_input'))
@@ -28,11 +28,10 @@ export const config = {
 };
 
 export function validateEnv() {
-  if (!config.geminiApiKey) {
+  if (!config.openaiApiKey) {
     throw new Error(
-      'Chave de API do Gemini (GEMINI_API_KEY) não foi encontrada nas variáveis de ambiente nem no arquivo .env.'
+      'Chave de API da OpenAI (OPENAI_API_KEY ou OPENAI_SECRET_KEY) não foi encontrada nas variáveis de ambiente nem no arquivo .env.'
     );
   }
   return true;
 }
-

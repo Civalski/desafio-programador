@@ -1,5 +1,4 @@
 import { openaiService } from './openaiService.js';
-import { geminiService } from './geminiService.js';
 import { extractPayrollLocalPdf } from '../utils/pdfExtractor.js';
 import { normalizePayrollResponse } from '../normalizers/payrollNormalizer.js';
 import { normalizeTimeCardResponse } from '../normalizers/timeCardNormalizer.js';
@@ -12,12 +11,7 @@ export class AIProviderService {
       return await openaiService.parseDocument(filePath, documentType, options);
     }
 
-    if (geminiService.isReady()) {
-      console.log('⚡ Utilizando provedor Gemini (Visão Nativa PDF) para processamento...');
-      return await geminiService.parseDocument(filePath, documentType, options);
-    }
-
-    console.warn('⚠️ Nenhum provedor de IA (OpenAI / Gemini) com chave ativa. Utilizando extrator local em PDF...');
+    console.warn('⚠️ OpenAI sem chave ativa configurada. Utilizando extrator local em PDF...');
     if (documentType === 'payroll') {
       const localResult = await extractPayrollLocalPdf(filePath);
       return normalizePayrollResponse(localResult);

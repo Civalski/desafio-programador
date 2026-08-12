@@ -59,7 +59,7 @@ test('2. Lacuna no Fim do Ano - Não deve criar 12/2024 automaticamente em trans
   );
 });
 
-test('3. Duplicidade de Competência - Detectar 05/2024 duplicado e sinalizar na auditoria sem excluir páginas', () => {
+test('3. Duplicidade de Competência sem Unificação - Detectar 05/2024 duplicado e sinalizar na auditoria', () => {
   const rawInput = {
     pages: [
       { page: 1, month: '04', year: '2024', items: [{ description: 'Salário Base', amount: '3.000,00' }] },
@@ -69,9 +69,9 @@ test('3. Duplicidade de Competência - Detectar 05/2024 duplicado e sinalizar na
     ]
   };
 
-  const result = normalizePayrollResponse(rawInput);
+  const result = normalizePayrollResponse(rawInput, { unifyCompetencies: false });
 
-  assert.equal(result.pages.length, 4, 'Todas as 4 páginas devem ser preservadas sem exclusão cega');
+  assert.equal(result.pages.length, 4, 'Todas as 4 páginas devem ser preservadas sem exclusão cega quando unifyCompetencies=false');
   assert.equal(result.audit.status, 'review_required', 'Deve sinalizar review_required devido à duplicidade');
   assert.deepEqual(result.audit.duplicates, ['05/2024'], 'Deve identificar 05/2024 no array de duplicidades');
   assert.ok(
@@ -112,3 +112,57 @@ test('5. Ausência de Competência - Não deve preencher fallbacks hardcoded fic
   assert.equal(result.audit.status, 'review_required', 'Sinalizar auditoria para revisão');
   assert.ok(result.audit.missingEvidence.length > 0, 'Deve registrar ausência de evidência na auditoria');
 });
+
+test('6. Unificação de Páginas Complementares do Mesmo Mês (ex: duas linhas 02/2018 que se completam)', () => {
+  const rawInput = {
+    pages: [
+      {
+        page: 1,
+        month: '02',
+        year: '2018',
+        items: [
+          { code: '40', description: 'Reembolso VR', reference: '0,00', amount: '' },
+          { code: '10', description: 'Salário Base', reference: '30,00', amount: '3.000,00' },
+          { description: 'Base INSS', amount: '3.000,00' }
+        ]
+      },
+      {
+        page: 2,
+        month: '02',
+        year: '2018',
+        items: [
+          { code: '40', description: 'Reembolso VR', reference: '0,00', amount: '360,00' },
+          { code: '50', description: 'Horas Extras 50%', reference: '10,00', amount: '250,00' },
+          { description: 'Valor Líquido', amount: '3.110,00' }
+        ]
+      }
+    ]
+  };
+
+  const result = normalizePayrollResponse(rawInput);
+
+  assert.equal(result.pages.length, 1, 'As duas linhas de 02/2018 devem ser unificadas em uma única linha');
+  assert.equal(result.pages[0].month, '02');
+  assert.equal(result.pages[0].year, '2018');
+
+  // Verifica se as verbas se completaram
+  const fields = result.pages[0].fields;
+  assert.equal(fields.length, 3, 'Deve conter Salário Base, Reembolso VR e Horas Extras 50%');
+
+  const vrField = fields.find(f => f.code === '40');
+  assert.ok(vrField, 'Reembolso VR deve estar presente');
+  assert.equal(vrField.value, '360,00', 'O valor 360,00 da página 2 deve ter preenchido o valor que faltava na página 1');
+
+  const baseField = fields.find(f => f.code === '10');
+  assert.equal(baseField.value, '3.000,00');
+
+  const extraField = fields.find(f => f.code === '50');
+  assert.equal(extraField.value, '250,00');
+
+  // Verifica se as bases se completaram
+  const bases = result.pages[0].bases;
+  assert.equal(bases.length, 2);
+  assert.ok(bases.some(b => b.label === 'Base INSS' && b.value === '3.000,00'));
+  assert.ok(bases.some(b => b.label === 'Valor Líquido' && b.value === '3.110,00'));
+});
+

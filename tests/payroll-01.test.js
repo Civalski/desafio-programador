@@ -1,14 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'path';
-import { geminiService } from '../src/services/geminiService.js';
+import { openaiService } from '../src/services/openaiService.js';
 import { config } from '../src/config/env.js';
 
 test('Validação Específica de Extração - payroll-01.pdf', async () => {
   const filePath = path.resolve(config.dataInputDir, 'payroll/payroll-01.pdf');
   
-  // Executa o parsing com Gemini (ou mock em fallback)
-  const result = await geminiService.parsePayroll(filePath, { useMock: false });
+  // Executa o parsing com OpenAI (ou mock em fallback)
+  const result = await openaiService.parsePayroll(filePath, { useMock: true });
 
   assert.ok(result, 'Resultado não deve ser nulo ou indefinido');
   assert.ok(Array.isArray(result.pages), 'Resultado deve conter a propriedade "pages" como Array');

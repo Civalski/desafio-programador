@@ -6,6 +6,7 @@ import { normalizeTimeCardResponse } from '../normalizers/timeCardNormalizer.js'
 import { getMockData } from '../mocks/mockProvider.js';
 import { extractPayrollLocalPdf } from '../utils/pdfExtractor.js';
 import { detectFichaFinanceira, segmentAllMonthBlocks } from '../utils/fichaFinanceiraSegmenter.js';
+import { analyzePageDensity, selectExtractionStrategy } from '../utils/densityAnalyzer.js';
 import { PDFExtract } from 'pdf.js-extract';
 
 const pdfExtract = new PDFExtract();
@@ -126,6 +127,72 @@ REGRAS:
 - NÃO omita nenhuma verba do bloco.
 - NÃO invente dados.
 `;
+
+/**
+ * PROMPT DE PASSAGEM ÚNICA (SINGLE-PASS):
+ * Extrai identificação + competência + verbas + totais + bases em 1 única chamada API.
+ * Usado para economizar 50% de tokens em documentos de densidade baixa/média.
+ */
+const PROMPT_SINGLE_PASS = `Você é um especialista em OCR e estruturação de Folhas de Pagamento (Holerites) brasileiros.
+Analise o texto desta página de holerite e extraia TODOS os dados estruturados:
+
+1. COMPETÊNCIA (mês e ano de referência) — OBRIGATÓRIO.
+2. DADOS DO FUNCIONÁRIO, EMPRESA E DADOS BANCÁRIOS.
+3. TODAS AS VERBAS da tabela principal (Proventos e Descontos), SEM OMITIR NENHUMA.
+4. TOTAIS DO RODAPÉ (Total Proventos, Total Descontos, Valor Líquido).
+5. BASES DE CÁLCULO (Base INSS, Base IRRF, Base FGTS, FGTS do Mês, etc.).
+
+REGRAS CRÍTICAS:
+- "competency.month" DEVE conter o mês (01-12) e "competency.year" o ano com 4 dígitos (ex: 2024).
+- Para cada verba em "fields": "reference" = quantidade/horas/percentual; "value" = valor monetário R$.
+- "type" de cada verba deve ser "provento" ou "desconto".
+- NÃO inclua totais ou bases dentro do array "fields".
+- Se um campo não existir, use null ou string vazia — NUNCA invente dados.
+
+Formato JSON estrito:
+{
+  "competency": {
+    "month": "MM",
+    "year": "YYYY",
+    "paymentDate": "DD/MM/YYYY ou null"
+  },
+  "company": {
+    "name": "Nome da Empresa",
+    "cnpj": "CNPJ ou null",
+    "branch": "Filial ou null"
+  },
+  "employee": {
+    "name": "Nome do Funcionário",
+    "cpf": "CPF ou null",
+    "registration": "Matrícula ou null",
+    "role": "Cargo ou null",
+    "department": "Departamento ou null",
+    "admissionDate": "DD/MM/YYYY ou null"
+  },
+  "bankInfo": {
+    "bank": "Banco ou null",
+    "agency": "Agência ou null",
+    "account": "Conta ou null"
+  },
+  "fields": [
+    {
+      "code": "Código numérico ou null",
+      "label": "Descrição exata da verba",
+      "reference": "Qtd/Horas/Percentual ou null",
+      "value": "Valor monetário R$",
+      "type": "provento ou desconto"
+    }
+  ],
+  "totals": {
+    "totalAdditions": "Total Proventos R$ ou null",
+    "totalDeductions": "Total Descontos R$ ou null",
+    "netValue": "Valor Líquido R$ ou null"
+  },
+  "bases": [
+    { "label": "Nome exato da base (ex: Base INSS)", "value": "Valor R$" }
+  ]
+}`;
+
 export class OpenAIService {
   constructor(apiKey = config.openaiApiKey) {
     this.apiKey = apiKey;
@@ -227,7 +294,8 @@ export class OpenAIService {
 
       return {
         pageNum,
-        text: textLines.join('\n')
+        text: textLines.join('\n'),
+        rawContent: p.content || []
       };
     });
   }
@@ -242,7 +310,7 @@ export class OpenAIService {
         throw new Error(`Arquivo não encontrado: ${filePath}`);
       }
 
-      if (this.isReady()) {
+      if (this.isReady() && !options.useMock) {
         try {
           // Extrai o PDF bruto via pdfExtract para verificar se é Ficha Financeira
           const pdfRawData = await new Promise((resolve, reject) => {
@@ -329,13 +397,29 @@ export class OpenAIService {
                 }
               };
 
-              console.log(`🔍 Extraindo Página ${pageObj.pageNum} com Prompt Unificado + Totais...`);
+              const density = analyzePageDensity(pageObj.rawContent);
+              const strategy = selectExtractionStrategy(density, false);
 
-              // 2 chamadas em paralelo: unified (ident+verbas) e totals (rodapé)
-              const [unifiedData, totalsData] = await Promise.all([
-                runPrompt(PROMPT_UNIFIED),
-                runPrompt(PROMPT_TOTALS)
-              ]);
+              let unifiedData = {};
+              let totalsData = {};
+
+              if (strategy === 'SINGLE_PASS') {
+                console.log(`📊 Página ${pageObj.pageNum} (${density.charCount} chars, Tier SINGLE_PASS): Executando 1 única chamada IA para economizar tokens...`);
+                const singlePassData = await runPrompt(PROMPT_SINGLE_PASS);
+                unifiedData = singlePassData || {};
+                totalsData = {
+                  totals: singlePassData.totals || {},
+                  bases: singlePassData.bases || []
+                };
+              } else {
+                console.log(`🔍 Página ${pageObj.pageNum} (${density.charCount} chars, Tier DUAL_PASS): Extraindo com Prompt Unificado + Totais...`);
+                const [uData, tData] = await Promise.all([
+                  runPrompt(PROMPT_UNIFIED),
+                  runPrompt(PROMPT_TOTALS)
+                ]);
+                unifiedData = uData || {};
+                totalsData = tData || {};
+              }
 
               // Lê competência do formato novo (competency.month/year)
               const competency = unifiedData.competency || {};

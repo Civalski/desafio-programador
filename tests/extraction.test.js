@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { geminiService } from '../src/services/geminiService.js';
+import { openaiService } from '../src/services/openaiService.js';
 import { listInputDocuments } from '../src/utils/inputDocuments.js';
 
 test('Extraction Test Suite - All 8 Input Documents Schema Validation', async (t) => {
@@ -15,7 +15,7 @@ test('Extraction Test Suite - All 8 Input Documents Schema Validation', async (t
 
   await t.test('Holerites (Payroll) DTO Schema', async () => {
     for (const doc of payrollDocs) {
-      const dto = await geminiService.parsePayroll(doc.fullPath, { useMock: true });
+      const dto = await openaiService.parsePayroll(doc.fullPath, { useMock: true });
       assert.ok(dto.pages, `DTO de ${doc.name} deve conter array pages`);
       assert.ok(Array.isArray(dto.pages));
       assert.ok(dto.pages.length > 0);
@@ -26,7 +26,7 @@ test('Extraction Test Suite - All 8 Input Documents Schema Validation', async (t
 
   await t.test('Cartões de Ponto (Time Cards) DTO Schema', async () => {
     for (const doc of timeCardDocs) {
-      const dto = await geminiService.parseTimeCard(doc.fullPath, { useMock: true });
+      const dto = await openaiService.parseTimeCard(doc.fullPath, { useMock: true });
       assert.ok(dto.pages, `DTO de ${doc.name} deve conter array pages`);
       assert.ok(Array.isArray(dto.pages));
       assert.ok(dto.pages.length > 0);

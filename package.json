@@ -27,7 +27,8 @@
     "test": "node --test tests/*.test.js",
     "test:extraction": "node scripts/test-extraction.js",
     "test:gemini": "node scripts/verify-gemini-integration.js",
-    "snapshot:extract": "node scripts/extract-snapshots.js"
+    "snapshot:extract": "node scripts/extract-snapshots.js",
+    "benchmark:payroll01": "node scripts/benchmark-payroll01.js"
   },
   "dependencies": {
     "@fastify/cors": "^11.3.0",

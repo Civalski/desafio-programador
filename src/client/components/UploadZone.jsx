@@ -6,8 +6,6 @@ export function UploadZone({ onUpload, isProcessing }) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [error, setError] = useState('');
 
-  const [enableAudit, setEnableAudit] = useState(false);
-
   const handleFileChange = (e) => {
     const file = e.target.files?.[0];
     validateAndSetFile(file);
@@ -37,7 +35,7 @@ export function UploadZone({ onUpload, isProcessing }) {
       setError('Selecione um arquivo PDF para continuar.');
       return;
     }
-    onUpload(selectedFile, tipo, enableAudit);
+    onUpload(selectedFile, tipo);
   };
 
   return (
@@ -89,28 +87,6 @@ export function UploadZone({ onUpload, isProcessing }) {
               />
               Holerite (Payroll)
             </label>
-          </div>
-        </div>
-
-        {/* Minimalist Monochrome Toggle Card for Audit Activation */}
-        <div 
-          className={`audit-toggle-card ${enableAudit ? 'active' : ''}`}
-          onClick={() => setEnableAudit(!enableAudit)}
-        >
-          <div className="audit-toggle-info">
-            <div className="audit-toggle-header">
-              <span className="audit-toggle-title">Auditoria Adicional (Stage 3)</span>
-              <span className={`audit-badge ${enableAudit ? 'active' : ''}`}>
-                {enableAudit ? 'ATIVADA' : 'OPCIONAL'}
-              </span>
-            </div>
-            <p className="audit-toggle-desc">
-              Validação cruzada com modelo adicional Gemini. Aumenta a precisão e a confiabilidade.
-            </p>
-          </div>
-
-          <div className={`toggle-switch ${enableAudit ? 'checked' : ''}`}>
-            <div className="toggle-switch-thumb"></div>
           </div>
         </div>
 
