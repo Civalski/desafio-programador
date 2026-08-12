@@ -18,11 +18,16 @@
   },
   "homepage": "https://github.com/quick-filler/desafio-programador#readme",
   "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
     "test": "node --test tests/*.test.js",
     "test:mindee": "node scripts/verify-mindee-integration.js"
   },
   "dependencies": {
+    "@fastify/cors": "^11.3.0",
+    "@fastify/multipart": "^10.1.0",
     "dotenv": "^17.4.2",
+    "fastify": "^5.11.3",
     "mindee": "^5.6.0"
   }
 }

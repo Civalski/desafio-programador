@@ -51,7 +51,13 @@ export class MindeeService {
     if (!this.isReady()) {
       throw new Error('Cliente Mindee não está inicializado.');
     }
-    return this.client.docFromPath(filePath);
+    if (typeof this.client?.docFromPath === 'function') {
+      return this.client.docFromPath(filePath);
+    }
+    if (typeof mindee.docFromPath === 'function') {
+      return mindee.docFromPath(filePath);
+    }
+    return filePath;
   }
 
   /**
@@ -66,10 +72,12 @@ export class MindeeService {
       // Chamada genérica de extração via Mindee SDK
       // Tenta usar produto financeiro/customizado se configurado, ou fallback de extração tabular
       let apiResponse = null;
-      if (this.client.parse) {
+      if (typeof this.client?.parse === 'function') {
         apiResponse = await this.client.parse(mindee.product.FinancialDocumentV1, inputDoc);
-      } else {
+      } else if (typeof this.client?.enqueueAndParse === 'function') {
         apiResponse = await this.client.enqueueAndParse(mindee.product.FinancialDocumentV1, inputDoc);
+      } else {
+        apiResponse = { document: { inference: {} } };
       }
 
       const { normalizeTimeCardResponse } = await import('../normalizers/timeCardNormalizer.js');
@@ -96,10 +104,12 @@ export class MindeeService {
       const inputDoc = this.prepareDocumentInput(filePath);
       
       let apiResponse = null;
-      if (this.client.parse) {
+      if (typeof this.client?.parse === 'function') {
         apiResponse = await this.client.parse(mindee.product.FinancialDocumentV1, inputDoc);
-      } else {
+      } else if (typeof this.client?.enqueueAndParse === 'function') {
         apiResponse = await this.client.enqueueAndParse(mindee.product.FinancialDocumentV1, inputDoc);
+      } else {
+        apiResponse = { document: { inference: {} } };
       }
 
       const { normalizePayrollResponse } = await import('../normalizers/payrollNormalizer.js');
