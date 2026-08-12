@@ -16,5 +16,12 @@
   "bugs": {
     "url": "https://github.com/quick-filler/desafio-programador/issues"
   },
-  "homepage": "https://github.com/quick-filler/desafio-programador#readme"
+  "homepage": "https://github.com/quick-filler/desafio-programador#readme",
+  "scripts": {
+    "test:mindee": "node scripts/verify-mindee-integration.js"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "mindee": "^5.6.0"
+  }
 }
