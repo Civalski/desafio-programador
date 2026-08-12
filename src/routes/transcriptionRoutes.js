@@ -2,7 +2,7 @@ import os from 'node:os';
 import fs from 'node:fs';
 import path from 'node:path';
 import { transcriptionStore } from '../services/transcriptionStore.js';
-import { geminiService } from '../services/geminiService.js';
+import { aiProviderService } from '../services/aiProvider.js';
 import { generateExport } from '../utils/exportUtils.js';
 
 /**
@@ -69,7 +69,7 @@ export async function transcriptionRoutes(fastify) {
     setImmediate(async () => {
       try {
         const docTypeMapping = tipo === 'cartao-ponto' ? 'time_card' : 'payroll';
-        const parsedResult = await geminiService.parseDocument(tempFilePath, docTypeMapping, { enableAudit });
+        const parsedResult = await aiProviderService.parseDocument(tempFilePath, docTypeMapping, { enableAudit });
 
         // Se o resultado for válido, conclui o job
         transcriptionStore.completeJob(job.id, parsedResult);

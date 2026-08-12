@@ -97,3 +97,106 @@ export function formatMoneyString(rawValue) {
 export function hasOddPunches(punches) {
   return Array.isArray(punches) && punches.length % 2 !== 0;
 }
+
+/**
+ * Realiza a auditoria global sobre o conjunto de competências (mês/ano) e holerites do documento.
+ * @param {Object} dto Objeto DTO contendo { pages: [...] }
+ * @returns {Object} Resultado detalhado da auditoria global
+ */
+export function auditGlobalPayroll(dto = {}) {
+  const pages = dto.pages || [];
+  const competenciesCount = {};
+  const identifiedCompetencies = [];
+  const duplicates = [];
+  const invalidFormats = [];
+  const yearInconsistencies = [];
+  const missingEvidence = [];
+  const inferredCompetencies = [];
+  const warnings = [];
+
+  const yearsFound = new Set();
+
+  pages.forEach((page, pageIdx) => {
+    const pageNum = page.page || (pageIdx + 1);
+    const month = String(page.month || '').trim();
+    const year = String(page.year || '').trim();
+
+    // 5 & 6. Verifica ausência de evidência / competência não identificada
+    if (!month || !year) {
+      missingEvidence.push({
+        page: pageNum,
+        month,
+        year,
+        reason: 'Competência (mês ou ano) não identificada na página'
+      });
+      warnings.push(`Página ${pageNum}: Competência não evidenciada no documento.`);
+      return;
+    }
+
+    if (page.isInferred || page.isFallbackCompetency) {
+      inferredCompetencies.push({
+        page: pageNum,
+        month,
+        year
+      });
+      warnings.push(`Página ${pageNum}: Competência ${month}/${year} foi marcada como inferida.`);
+    }
+
+    // 3. Validação de Formato
+    const monthNum = parseInt(month, 10);
+    const yearNum = parseInt(year, 10);
+
+    const isMonthValid = !isNaN(monthNum) && monthNum >= 1 && monthNum <= 13;
+    const isYearValid = !isNaN(yearNum) && yearNum >= 1990 && yearNum <= 2100;
+
+    if (!isMonthValid || !isYearValid || month.includes('?') || year.includes('?')) {
+      invalidFormats.push({
+        page: pageNum,
+        month,
+        year,
+        reason: !isMonthValid ? 'Mês inválido' : (!isYearValid ? 'Ano inválido' : 'Formato ambíguo')
+      });
+      warnings.push(`Página ${pageNum}: Formato de competência inválido ou ambíguo (${month}/${year}).`);
+    } else {
+      yearsFound.add(yearNum);
+      const formattedComp = `${month.padStart(2, '0')}/${year}`;
+      if (!identifiedCompetencies.includes(formattedComp)) {
+        identifiedCompetencies.push(formattedComp);
+      }
+      competenciesCount[formattedComp] = (competenciesCount[formattedComp] || 0) + 1;
+    }
+  });
+
+  // 2. Detecção de Duplicidades
+  Object.keys(competenciesCount).forEach((comp) => {
+    if (competenciesCount[comp] > 1) {
+      duplicates.push(comp);
+      warnings.push(`Competência ${comp} aparece duplicada (${competenciesCount[comp]} vezes) no documento. Verificar se é caso legítimo (ex: 13º salário, adiantamento ou rescisão).`);
+    }
+  });
+
+  // 4. Inconsistências de Ano entre Páginas
+  if (yearsFound.size > 2) {
+    const yearList = Array.from(yearsFound).sort((a, b) => a - b);
+    yearInconsistencies.push({
+      years: yearList,
+      reason: `Documento contém holerites de ${yearList.length} anos distintos (${yearList.join(', ')})`
+    });
+    warnings.push(`Atenção: O documento possui holerites de múltiplos anos distintos (${yearList.join(', ')}).`);
+  }
+
+  const status = (duplicates.length > 0 || invalidFormats.length > 0 || missingEvidence.length > 0 || yearInconsistencies.length > 0 || inferredCompetencies.length > 0)
+    ? 'review_required'
+    : 'ok';
+
+  return {
+    status,
+    competencies: identifiedCompetencies,
+    duplicates,
+    invalidFormats,
+    yearInconsistencies,
+    missingEvidence,
+    inferredCompetencies,
+    warnings
+  };
+}

@@ -41,6 +41,24 @@ export class GeminiService {
     return false;
   }
 
+  async generateContentWithFallback(params) {
+    const models = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-flash-latest'];
+    let lastError;
+    for (const model of models) {
+      try {
+        return await this.ai.models.generateContent({ ...params, model });
+      } catch (err) {
+        lastError = err;
+        if (err.status === 429 || err.message?.includes('429') || err.message?.includes('quota')) {
+          console.warn(`⚠️ Quota excedida no modelo ${model}. Tentando modelo fallback...`);
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw lastError;
+  }
+
   /**
    * Envia um arquivo PDF de Holerite (Payroll) para a API do Gemini e retorna o DTO normalizado.
    * @param {string} filePath Caminho do arquivo PDF
@@ -72,12 +90,11 @@ export class GeminiService {
 
           // ETAPA 1: Identificação de Layout, Colunas e Competências por Mês
           const layoutPrompt = `ETAPA 1 (Análise de Layout): Analise o documento em PDF de Folha de Pagamento de Funcionário.
-Identifique as colunas das tabelas de verbas (Código, Descrição/Verba, Referência/Quantidade, Proventos, Descontos) e todas as competências (Mês/Ano) presentes.
+Identifique as colunas das tabelas de verbas (Código, Descrição/Verba, Referência/Quantidade, Proventos, Descontos) e todas as competências (Mês/Ano) presentes no PDF.
 Retorne um JSON no formato:
-{ "hasReference": true, "months": ["04/2017"], "detectedColumns": ["code", "description", "reference", "amount"] }`;
+{ "hasReference": true, "months": ["MM/YYYY"], "detectedColumns": ["code", "description", "reference", "amount"] }`;
 
-          const layoutPromise = this.ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+          const layoutPromise = this.generateContentWithFallback({
             contents: [pdfContentPart, layoutPrompt],
             config: { responseMimeType: 'application/json' }
           });
@@ -90,13 +107,14 @@ Retorne um JSON no formato:
 REGRAS CRÍTICAS DE COLUNAS:
 1. "reference": deve ser EXCLUSIVAMENTE a quantidade, horas, dias ou percentuais (ex: "30,00", "146,67", "0,00", "50%"). NUNCA coloque o valor do salário ou valor em R$ em "reference".
 2. "value": deve conter o valor monetário líquido em R$ (se for vencimento/provento ou desconto).
-3. "month" e "year": extraia de forma precisa a competência de cada página/holerite (ex: month: "04", year: "2017"). Separe meses diferentes em elementos distintos em "pages".
+3. "month" e "year": extraia de forma precisa a competência de cada página/holerite no formato de 2 dígitos para mês e 4 dígitos para ano (ex: month: "MM", year: "YYYY"). Separe meses diferentes em elementos distintos em "pages".
+4. REGRA FUNDAMENTAL DE EVIDÊNCIA DOCUMENTAL: Extraia APENAS as competências (mês/ano) e holerites efetivamente presentes no documento PDF. NUNCA crie, preencha ou infira meses, anos ou holerites ausentes para tentar completar a sequência de um ano (ex: se o documento contém 01/2024 e 03/2024 sem o mês 02/2024, retorne APENAS 01/2024 e 03/2024). NUNCA use "04", "2017", "MM" ou "YYYY" como valores fictícios se não constarem no PDF.
+5. ATENÇÃO COM DATAS DE ADMISSÃO, EMISSÃO E PAGAMENTO: Datas como Data de Admissão (ex: 15/03/2018), Data de Emissão (ex: 05/06/2024) ou Data de Nascimento NÃO são a competência. A competência é exclusivamente o Mês/Ano do holerite (Mês/Ano, Competência, Período, Ref).
 
 Formato estrito JSON:
-{ "pages": [ { "page": 1, "month": "04", "year": "2017", "fields": [{ "code": "40", "label": "Reembolso VR", "reference": "0,00", "value": "360,00" }], "bases": [{ "label": "Base INSS", "value": "2.630,79" }] } ] }`;
+{ "pages": [ { "page": 1, "month": "MM", "year": "YYYY", "fields": [{ "code": "40", "label": "Reembolso VR", "reference": "0,00", "value": "360,00" }], "bases": [{ "label": "Base INSS", "value": "2.630,79" }] } ] }`;
 
-          const apiPromise = this.ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+          const apiPromise = this.generateContentWithFallback({
             contents: [pdfContentPart, extractionPrompt],
             config: { responseMimeType: 'application/json' }
           });
@@ -121,14 +139,13 @@ Verifique e corrija especificamente:
 1. Desalinhamento entre "reference" (quantidade/horas/dias/percentuais) e "value" (valor monetário R$). Se um valor monetário em R$ tiver sido atribuído a "reference", mova-o para "value".
 2. Valores monetários atribuídos à coluna errada (vencimentos x descontos x bases).
 3. Verbas ou valores monetários presentes no documento PDF que aparentem estar omissos ou ausentes nos dados extraídos.
-4. Problemas de agrupamento por mês/competência (year e month).
+4. Problemas de agrupamento por mês/competência (year e month). NUNCA infira ou invente competências ausentes no documento PDF original.
 5. Inconsistências relevantes na estrutura extraída.
 
 Retorne o JSON corrigido e revisado no mesmo formato estrito:
-{ "pages": [ { "page": 1, "month": "04", "year": "2017", "fields": [{ "code": "40", "label": "Reembolso VR", "reference": "0,00", "value": "360,00" }], "bases": [{ "label": "Base INSS", "value": "2.630,79" }] } ] }`;
+{ "pages": [ { "page": 1, "month": "MM", "year": "YYYY", "fields": [{ "code": "40", "label": "Reembolso VR", "reference": "0,00", "value": "360,00" }], "bases": [{ "label": "Base INSS", "value": "2.630,79" }] } ] }`;
 
-              const auditPromise = this.ai.models.generateContent({
-                model: 'gemini-2.5-flash',
+              const auditPromise = this.generateContentWithFallback({
                 contents: [pdfContentPart, auditPrompt],
                 config: { responseMimeType: 'application/json' }
               });
@@ -159,8 +176,11 @@ Retorne o JSON corrigido e revisado no mesmo formato estrito:
 
     } catch (error) {
       console.error(`❌ Erro no parsing via Gemini (${filePath}):`, error.message);
-      const fallbackRaw = getMockData(filePath, 'payroll');
-      return normalizePayrollResponse(fallbackRaw);
+      if (this.shouldUseMock(options)) {
+        const fallbackRaw = getMockData(filePath, 'payroll');
+        return normalizePayrollResponse(fallbackRaw);
+      }
+      return normalizePayrollResponse({ pages: [] });
     }
   }
 

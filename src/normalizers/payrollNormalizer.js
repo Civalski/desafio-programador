@@ -1,4 +1,4 @@
-import { formatMoneyString } from '../utils/validationUtils.js';
+import { formatMoneyString, auditGlobalPayroll } from '../utils/validationUtils.js';
 
 // Expressões regulares para identificar se uma linha pertence à seção de bases/totais (ex: Base INSS, Total Vencimentos, Valor Líquido)
 const BASE_LABEL_REGEX = /^(base\s+inss|base\s+ir|base\s+irrf|base\s+fgts|fgts\s+do\s+m[eê]s|base\s+calc|total\s+venc|total\s+desc|valor\s+l[ií]quido|inss\s+patronal|total\s+prov)/i;
@@ -11,10 +11,12 @@ const BASE_LABEL_REGEX = /^(base\s+inss|base\s+ir|base\s+irrf|base\s+fgts|fgts\s
  */
 export function normalizePayrollResponse(rawData) {
   const result = {
-    pages: []
+    pages: [],
+    audit: null
   };
 
   if (!rawData) {
+    result.audit = auditGlobalPayroll(result);
     return result;
   }
 
@@ -26,6 +28,9 @@ export function normalizePayrollResponse(rawData) {
     // Normalização de competência
     let year = String(pageData.year || '').trim();
     let month = String(pageData.month || '').trim();
+
+    if (month.toUpperCase() === 'MM' || month === '00') month = '';
+    if (year.toUpperCase() === 'YYYY' || year === '0000') year = '';
 
     if (month && month.length === 1) {
       month = `0${month}`;
@@ -77,6 +82,9 @@ export function normalizePayrollResponse(rawData) {
       bases
     });
   });
+
+  // Anexa a auditoria global sobre as competências extraídas
+  result.audit = auditGlobalPayroll(result);
 
   return result;
 }
