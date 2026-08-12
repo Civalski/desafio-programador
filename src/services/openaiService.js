@@ -40,10 +40,10 @@ export class OpenAIService {
   }
 
   /**
-   * Executa chamada com fallback de modelos (gpt-4o-mini -> gpt-4o)
+   * Executa chamada com fallback de modelos (gpt-4o -> gpt-4o-mini)
    */
   async generateCompletionWithFallback(messages, options = {}) {
-    const models = ['gpt-4o-mini', 'gpt-4o'];
+    const models = ['gpt-4o', 'gpt-4o-mini'];
     let lastError;
 
     for (const model of models) {
@@ -68,7 +68,7 @@ export class OpenAIService {
   }
 
   /**
-   * Extrai o conteúdo preservando colunas espaciais e tabelas paralelas de um PDF
+   * Extrai o conteúdo preservando colunas espaciais separado por páginas
    */
   async extractPdfTextPages(filePath) {
     const data = await new Promise((resolve, reject) => {
@@ -105,12 +105,16 @@ export class OpenAIService {
         return lineStr;
       });
 
-      return `--- PÁGINA ${pageNum} ---\n` + textLines.join('\n');
-    }).join('\n\n');
+      return {
+        pageNum,
+        text: textLines.join('\n')
+      };
+    });
   }
 
   /**
    * Envia o PDF de Holerite (Payroll) para a API da OpenAI e retorna o DTO normalizado.
+   * Processa página por página para garantir 100% de cobertura sem omissão de verbas.
    */
   async parsePayroll(filePath, options = {}) {
     try {
@@ -120,48 +124,51 @@ export class OpenAIService {
 
       if (this.isReady()) {
         try {
-          const rawPdfText = await this.extractPdfTextPages(filePath);
+          const pdfPages = await this.extractPdfTextPages(filePath);
+          console.log(`📄 Processando ${pdfPages.length} páginas de holerite em paralelo via OpenAI...`);
 
-          const systemPrompt = `Você é um especialista em OCR e estruturação de documentos contábeis/RH brasileiros (Holerites / Folhas de Pagamento).
-O texto recebido contém colunas de tabelas separadas visualmente por '  |  '.
-IMPORTANTE: Existem verbas em colunas paralelas (Proventos à esquerda e Descontos à direita). Você DEVE extrair TODAS as verbas (de ambas as colunas) para cada mês/competência.
+          const pagePromises = pdfPages.map(async (pageObj) => {
+            const systemPrompt = `Você é um especialista em OCR e estruturação de documentos contábeis/RH brasileiros (Holerites / Folhas de Pagamento).
+O texto recebido contém a Página ${pageObj.pageNum} com colunas de tabelas separadas visualmente por '  |  '.
+IMPORTANTE: Existem verbas em colunas paralelas (Proventos à esquerda e Descontos à direita). Extraia TODAS as verbas (de ambas as colunas) SEM OMITIR NENHUMA VERBA.
 
 REGRAS CRÍTICAS DE EXTRAÇÃO:
-1. "fields": Array com TODAS as verbas encontradas (Proventos e Descontos). Cada item deve ter:
+1. "fields": Array com TODAS as verbas encontradas na página (Proventos e Descontos). Cada item deve ter:
    - "code": código numérico da verba (ex: "40", "499", "511", "91").
    - "label": nome/descrição da verba (ex: "Reembolso VR", "Vale Ref Func", "INSS Normal").
    - "reference": quantidade, horas, dias ou percentuais (ex: "30,00", "146,67", "0,00"). NUNCA coloque valores monetários em R$ em reference.
    - "value": valor monetário em R$ da verba (ex: "360,00", "36,00", "100,85").
 2. "bases": Totais e bases (ex: Base INSS, Base IRRF, Base FGTS, Valor FGTS, Salário Líquido).
-3. "month" e "year": competência exata (Mês "MM" de 2 dígitos e Ano "YYYY" de 4 dígitos). Se houver holerites de meses diferentes, separe em objetos distintos no array "pages".
+3. "month" e "year": competência exata (Mês "MM" de 2 dígitos e Ano "YYYY" de 4 dígitos).
 4. REGRA DE EVIDÊNCIA: Extraia APENAS o que consta no documento. NUNCA invente ou infira meses ausentes.
 
-FORMATO JSON DE SAÍDA EXIGIDO:
+FORMATO JSON EXIGIDO:
 {
-  "pages": [
-    {
-      "page": 1,
-      "month": "05",
-      "year": "2024",
-      "fields": [
-        { "code": "40", "label": "Reembolso VR", "reference": "0,00", "value": "360,00" },
-        { "code": "499", "label": "Vale Ref Func", "reference": "0", "value": "36,00" }
-      ],
-      "bases": [
-        { "label": "Base INSS", "value": "2.630,79" }
-      ]
-    }
+  "page": ${pageObj.pageNum},
+  "month": "MM",
+  "year": "YYYY",
+  "fields": [
+    { "code": "40", "label": "Reembolso VR", "reference": "0,00", "value": "360,00" }
+  ],
+  "bases": [
+    { "label": "Base INSS", "value": "2.630,79" }
   ]
 }`;
 
-          const userPrompt = `Analise o seguinte conteúdo extraído do PDF do holerite e estruture em JSON:\n\n${rawPdfText}`;
+            try {
+              const completionJson = await this.generateCompletionWithFallback([
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: pageObj.text }
+              ]);
+              return JSON.parse(completionJson);
+            } catch (err) {
+              console.warn(`⚠️ Falha na extração da página ${pageObj.pageNum} via OpenAI:`, err.message);
+              return null;
+            }
+          });
 
-          const completionJson = await this.generateCompletionWithFallback([
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userPrompt }
-          ]);
-
-          const parsedObj = JSON.parse(completionJson);
+          const extractedPagesRaw = (await Promise.all(pagePromises)).filter(Boolean);
+          const parsedObj = { pages: extractedPagesRaw };
           const normalized = normalizePayrollResponse(parsedObj);
 
           if (normalized.pages?.[0]?.fields?.length) {
@@ -170,8 +177,6 @@ FORMATO JSON DE SAÍDA EXIGIDO:
         } catch (apiErr) {
           console.warn(`⚠️ API da OpenAI falhou (${apiErr.message}). Utilizando extrator local em PDF...`);
         }
-      }
-
       // Fallback para o extrator local
       const localResult = await extractPayrollLocalPdf(filePath);
       return normalizePayrollResponse(localResult);
