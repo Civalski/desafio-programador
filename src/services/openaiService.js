@@ -9,6 +9,88 @@ import { PDFExtract } from 'pdf.js-extract';
 
 const pdfExtract = new PDFExtract();
 
+/**
+ * PROMPT UNIFICADO: Extrai identificação + competência + verbas em uma única chamada.
+ * Isso garante que a data (mês/ano) sempre viaje junto das verbas, evitando o bug
+ * onde a competência desaparece ao mesclar múltiplas páginas.
+ */
+const PROMPT_UNIFIED = `Você é um especialista em OCR e estruturação de Folhas de Pagamento (Holerites) brasileiros.
+Analise o texto desta página de holerite e extraia:
+1. A COMPETÊNCIA (mês e ano de referência do holerite) — OBRIGATÓRIO. Procure por textos como "Competência:", "Mês/Ano:", "Período:", "Referência:", ou padrões como "05/2024".
+2. Os dados do FUNCIONÁRIO e EMPRESA (cabeçalho).
+3. TODAS as VERBAS da tabela principal (Proventos e Descontos), SEM OMITIR NENHUMA.
+
+REGRAS CRÍTICAS:
+- "competency.month" DEVE conter o número do mês (01-12) da folha de pagamento.
+- "competency.year" DEVE conter o ano com 4 dígitos (ex: 2024).
+- NÃO confunda data de admissão, emissão, nascimento ou pagamento com a competência.
+- Para cada verba em "fields": "reference" = quantidade/horas/percentual; "value" = valor monetário R$.
+- "type" de cada verba deve ser "provento" se é crédito/adição, ou "desconto" se é débito/subtração.
+- NÃO inclua totais (Total Proventos, Total Descontos, Valor Líquido) em "fields".
+- Se algum campo não existir no documento, use null ou string vazia — NUNCA invente dados.
+
+Formato JSON estrito:
+{
+  "competency": {
+    "month": "MM",
+    "year": "YYYY",
+    "paymentDate": "DD/MM/YYYY ou null"
+  },
+  "company": {
+    "name": "Nome da Empresa",
+    "cnpj": "CNPJ ou null",
+    "branch": "Filial ou null"
+  },
+  "employee": {
+    "name": "Nome do Funcionário",
+    "cpf": "CPF ou null",
+    "registration": "Matrícula ou null",
+    "role": "Cargo ou null",
+    "department": "Departamento ou null",
+    "admissionDate": "DD/MM/YYYY ou null"
+  },
+  "bankInfo": {
+    "bank": "Banco ou null",
+    "agency": "Agência ou null",
+    "account": "Conta ou null"
+  },
+  "fields": [
+    {
+      "code": "Código numérico ou null",
+      "label": "Descrição exata da verba como aparece no documento",
+      "reference": "Qtd/Horas/Percentual ou null",
+      "value": "Valor monetário R$ (ex: 3.200,00)",
+      "type": "provento ou desconto"
+    }
+  ]
+}`;
+
+/**
+ * PROMPT DE TOTAIS: Extrai exclusivamente rodapé (totais, bases, encargos).
+ * Explicitamente instruído a NÃO repetir itens que já são verbas individuais.
+ */
+const PROMPT_TOTALS = `Você é um especialista em OCR e estruturação de Folhas de Pagamento (Holerites) brasileiros.
+Analise o texto desta página e extraia APENAS os dados do RODAPÉ da folha:
+1. Os totais consolidados (Total Proventos, Total Descontos, Valor Líquido)
+2. As bases de cálculo (Base INSS, Base IRRF, Base FGTS, FGTS do Mês etc.)
+
+REGRAS CRÍTICAS:
+- NÃO inclua verbas individuais (ex: Salário Base, Vale Transporte, Horas Extras) — apenas totais e bases.
+- Se um item é uma verba individual da tabela principal, IGNORE-O aqui.
+- "bases" deve conter APENAS linhas de rodapé como: Base INSS, Base IRRF, Base FGTS, FGTS do Mês, Alíquota IRRF.
+- Se um campo não existir no documento, use null — NUNCA invente valores.
+
+Formato JSON estrito:
+{
+  "totals": {
+    "totalAdditions": "Total de Proventos R$ ou null",
+    "totalDeductions": "Total de Descontos R$ ou null",
+    "netValue": "Valor Líquido R$ ou null"
+  },
+  "bases": [
+    { "label": "Nome exato da base (ex: Base INSS)", "value": "Valor R$" }
+  ]
+}`;
 export class OpenAIService {
   constructor(apiKey = config.openaiApiKey) {
     this.apiKey = apiKey;
@@ -131,39 +213,57 @@ export class OpenAIService {
           console.log(`📄 Processando ${pdfPages.length} páginas de holerite em paralelo via OpenAI...`);
 
           const pagePromises = pdfPages.map(async (pageObj) => {
-            const systemPrompt = `Você é um especialista em OCR e estruturação de documentos contábeis/RH brasileiros (Holerites / Folhas de Pagamento).
-O texto recebido contém a Página ${pageObj.pageNum} com colunas de tabelas separadas visualmente por '  |  '.
-IMPORTANTE: Existem verbas em colunas paralelas (Proventos à esquerda e Descontos à direita). Extraia TODAS as verbas (de ambas as colunas) SEM OMITIR NENHUMA VERBA.
-
-REGRAS CRÍTICAS DE EXTRAÇÃO:
-1. "fields": Array com TODAS as verbas encontradas na página (Proventos e Descontos). Cada item deve ter:
-   - "code": código numérico da verba (ex: "40", "499", "511", "91").
-   - "label": nome/descrição da verba (ex: "Reembolso VR", "Vale Ref Func", "INSS Normal").
-   - "reference": quantidade, horas, dias ou percentuais (ex: "30,00", "146,67", "0,00"). NUNCA coloque valores monetários em R$ em reference.
-   - "value": valor monetário em R$ da verba (ex: "360,00", "36,00", "100,85").
-2. "bases": Totais e bases (ex: Base INSS, Base IRRF, Base FGTS, Valor FGTS, Salário Líquido).
-3. "month" e "year": competência exata (Mês "MM" de 2 dígitos e Ano "YYYY" de 4 dígitos).
-4. REGRA DE EVIDÊNCIA: Extraia APENAS o que consta no documento. NUNCA invente ou infira meses ausentes.
-
-FORMATO JSON EXIGIDO:
-{
-  "page": ${pageObj.pageNum},
-  "month": "MM",
-  "year": "YYYY",
-  "fields": [
-    { "code": "40", "label": "Reembolso VR", "reference": "0,00", "value": "360,00" }
-  ],
-  "bases": [
-    { "label": "Base INSS", "value": "2.630,79" }
-  ]
-}`;
-
             try {
-              const completionJson = await this.generateCompletionWithFallback([
-                { role: 'system', content: systemPrompt },
-                { role: 'user', content: pageObj.text }
+              const runPrompt = async (systemPrompt) => {
+                const completionJson = await this.generateCompletionWithFallback([
+                  { role: 'system', content: systemPrompt },
+                  { role: 'user', content: pageObj.text }
+                ]);
+                try {
+                  return JSON.parse(completionJson);
+                } catch {
+                  return {};
+                }
+              };
+
+              console.log(`🔍 Extraindo Página ${pageObj.pageNum} com Prompt Unificado + Totais...`);
+
+              // 2 chamadas em paralelo: unified (ident+verbas) e totals (rodapé)
+              const [unifiedData, totalsData] = await Promise.all([
+                runPrompt(PROMPT_UNIFIED),
+                runPrompt(PROMPT_TOTALS)
               ]);
-              return JSON.parse(completionJson);
+
+              // Lê competência do formato novo (competency.month/year)
+              const competency = unifiedData.competency || {};
+              const month = competency.month || unifiedData.month || '';
+              const year = competency.year || unifiedData.year || '';
+              const paymentDate = competency.paymentDate || unifiedData.paymentDate || null;
+
+              // Normaliza fields para garantir campo 'type'
+              const fields = (unifiedData.fields || []).map(f => ({
+                code: f.code || '',
+                label: f.label || '',
+                reference: f.reference || '',
+                value: f.value || '',
+                type: f.type || 'provento'
+              }));
+
+              const result = {
+                page: pageObj.pageNum,
+                month,
+                year,
+                paymentDate,
+                company: unifiedData.company || null,
+                employee: unifiedData.employee || null,
+                bankInfo: unifiedData.bankInfo || null,
+                fields,
+                totals: totalsData.totals || {},
+                bases: totalsData.bases || []
+              };
+
+              console.log(`✅ Página ${pageObj.pageNum}: Competência ${month}/${year} | Verbas: ${fields.length} | Bases: ${result.bases.length}`);
+              return result;
             } catch (err) {
               console.warn(`⚠️ Falha na extração da página ${pageObj.pageNum} via OpenAI:`, err.message);
               return null;

@@ -1,4 +1,6 @@
 import ExcelJS from 'exceljs';
+import { unifyPayrollPages } from '../normalizers/payrollNormalizer.js';
+import { normalizeLabelKey } from './labelNormalizer.js';
 
 /**
  * Utilitário de exportação de transcrições em diferentes formatos (JSON, CSV, XLSX).
@@ -13,7 +15,8 @@ export function exportToCsv(job) {
   if (!job || !job.value) return '';
 
   const tipo = job.tipo;
-  const pages = job.value.pages || [];
+  const rawPages = job.value.pages || [];
+  const pages = tipo === 'holerite' ? unifyPayrollPages(rawPages) : rawPages;
   const rows = [];
 
   if (tipo === 'cartao-ponto') {
@@ -35,24 +38,33 @@ export function exportToCsv(job) {
       }
     }
   } else if (tipo === 'holerite') {
-    const verbaKeys = [];
-    const baseKeys = [];
+    // Coleta todos os labels únicos de verbas e bases (deduplicados por chave canônica)
+    const verbaKeyMap = new Map(); // chave canônica → label preferído
+    const baseKeyMap = new Map();
 
     for (const page of pages) {
       for (const item of (page.fields || [])) {
         const label = (item.label || item.description || '').trim();
-        if (label && !verbaKeys.includes(label)) {
-          verbaKeys.push(label);
+        if (!label) continue;
+        const key = normalizeLabelKey(label);
+        if (!verbaKeyMap.has(key)) {
+          verbaKeyMap.set(key, label);
+        } else if (label.length > verbaKeyMap.get(key).length) {
+          verbaKeyMap.set(key, label); // prefere o label mais completo
         }
       }
       for (const item of (page.bases || [])) {
         const label = (item.label || item.description || '').trim();
-        if (label && !baseKeys.includes(label)) {
-          baseKeys.push(label);
+        if (!label) continue;
+        const key = normalizeLabelKey(label);
+        if (!baseKeyMap.has(key)) {
+          baseKeyMap.set(key, label);
         }
       }
     }
 
+    const verbaKeys = Array.from(verbaKeyMap.values());
+    const baseKeys = Array.from(baseKeyMap.values());
     const allKeys = [...verbaKeys, ...baseKeys];
     const headers = ['Página', 'Competência', ...allKeys];
     rows.push(headers.map(h => `"${String(h).replace(/"/g, '""')}"`).join(','));
@@ -61,24 +73,25 @@ export function exportToCsv(job) {
       const pageNum = page.page || 1;
       const comp = (page.month && page.year) ? `${page.month}/${page.year}` : '';
 
+      // Monta mapa por chave canônica para deduplicação
       const fieldMap = {};
       for (const item of (page.fields || [])) {
         const label = (item.label || item.description || '').trim();
-        if (label) fieldMap[label] = item.value || '';
+        if (label) fieldMap[normalizeLabelKey(label)] = item.value || '';
       }
 
       const baseMap = {};
       for (const item of (page.bases || [])) {
         const label = (item.label || item.description || '').trim();
-        if (label) baseMap[label] = item.value || '';
+        if (label) baseMap[normalizeLabelKey(label)] = item.value || '';
       }
 
       const rowValues = [pageNum, `"${comp}"`];
-      for (const key of verbaKeys) {
+      for (const key of Array.from(verbaKeyMap.keys())) {
         const val = fieldMap[key] || '';
         rowValues.push(`"${String(val).replace(/"/g, '""')}"`);
       }
-      for (const key of baseKeys) {
+      for (const key of Array.from(baseKeyMap.keys())) {
         const val = baseMap[key] || '';
         rowValues.push(`"${String(val).replace(/"/g, '""')}"`);
       }
@@ -124,7 +137,8 @@ export async function generateExport(job, format = 'xlsx') {
   const sheetName = job.tipo === 'cartao-ponto' ? 'Cartão de Ponto' : 'Holerite';
   const worksheet = workbook.addWorksheet(sheetName);
 
-  const pages = job.value?.pages || [];
+  const rawPages = job.value?.pages || [];
+  const pages = job.tipo === 'holerite' ? unifyPayrollPages(rawPages) : rawPages;
 
   if (job.tipo === 'cartao-ponto') {
     worksheet.columns = [
@@ -158,21 +172,26 @@ export async function generateExport(job, format = 'xlsx') {
       }
     }
   } else if (job.tipo === 'holerite') {
-    const verbaKeys = [];
-    const baseKeys = [];
+    // Coleta labels únicos por chave canônica + classifica tipo (provento/desconto) para colorir
+    const verbaKeyMap = new Map(); // chave → { label, type }
+    const baseKeyMap = new Map();  // chave → label
 
     for (const page of pages) {
       for (const item of (page.fields || [])) {
         const label = (item.label || item.description || '').trim();
-        if (label && !verbaKeys.includes(label)) {
-          verbaKeys.push(label);
+        if (!label) continue;
+        const key = normalizeLabelKey(label);
+        if (!verbaKeyMap.has(key)) {
+          verbaKeyMap.set(key, { label, type: item.type || 'provento' });
+        } else if (label.length > verbaKeyMap.get(key).label.length) {
+          verbaKeyMap.set(key, { label, type: item.type || verbaKeyMap.get(key).type });
         }
       }
       for (const item of (page.bases || [])) {
         const label = (item.label || item.description || '').trim();
-        if (label && !baseKeys.includes(label)) {
-          baseKeys.push(label);
-        }
+        if (!label) continue;
+        const key = normalizeLabelKey(label);
+        if (!baseKeyMap.has(key)) baseKeyMap.set(key, label);
       }
     }
 
@@ -181,12 +200,12 @@ export async function generateExport(job, format = 'xlsx') {
       { header: 'Competência', key: 'competencia', width: 14 }
     ];
 
-    verbaKeys.forEach((key, idx) => {
-      columns.push({ header: key, key: `v_${idx}`, width: Math.max(key.length + 4, 16) });
+    Array.from(verbaKeyMap.entries()).forEach(([key, { label }], idx) => {
+      columns.push({ header: label, key: `v_${idx}`, width: Math.max(label.length + 4, 16) });
     });
 
-    baseKeys.forEach((key, idx) => {
-      columns.push({ header: key, key: `b_${idx}`, width: Math.max(key.length + 4, 16) });
+    Array.from(baseKeyMap.entries()).forEach(([key, label], idx) => {
+      columns.push({ header: label, key: `b_${idx}`, width: Math.max(label.length + 4, 16) });
     });
 
     worksheet.columns = columns;
@@ -195,44 +214,80 @@ export async function generateExport(job, format = 'xlsx') {
       const pageNum = page.page || 1;
       const comp = (page.month && page.year) ? `${page.month}/${page.year}` : '';
 
+      // Monta mapa de verbas por chave canônica
       const fieldMap = {};
       for (const item of (page.fields || [])) {
         const label = (item.label || item.description || '').trim();
-        if (label) fieldMap[label] = item.value || '';
+        if (label) fieldMap[normalizeLabelKey(label)] = item.value || '';
       }
 
       const baseMap = {};
       for (const item of (page.bases || [])) {
         const label = (item.label || item.description || '').trim();
-        if (label) baseMap[label] = item.value || '';
+        if (label) baseMap[normalizeLabelKey(label)] = item.value || '';
       }
 
-      const rowObj = {
-        page: pageNum,
-        competencia: comp
-      };
+      const rowObj = { page: pageNum, competencia: comp };
 
-      verbaKeys.forEach((key, idx) => {
+      Array.from(verbaKeyMap.keys()).forEach((key, idx) => {
         rowObj[`v_${idx}`] = fieldMap[key] || '';
       });
 
-      baseKeys.forEach((key, idx) => {
+      Array.from(baseKeyMap.keys()).forEach((key, idx) => {
         rowObj[`b_${idx}`] = baseMap[key] || '';
       });
 
       worksheet.addRow(rowObj);
     }
+
+
+    // ====== Estilização especial do cabeçalho por tipo de coluna ======
+    // Aplica estilo base azul escuro em todas as colunas do cabeçalho do holerite primeiro
+    const headerRow = worksheet.getRow(1);
+    headerRow.font = { bold: true, color: { argb: 'FFFFFF' } };
+    headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '1E3A8A' } };
+    headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+
+    // Cores específicas por coluna: verbas verdes/vermelhas, bases azuis
+    const verbaEntries = Array.from(verbaKeyMap.entries());
+    const baseEntries = Array.from(baseKeyMap.entries());
+
+
+    // Col 1 = Página, Col 2 = Competência (azul escuro default)
+    // Col 3..N = verbas (verde provento / vermelho desconto)
+    // Col N+1.. = bases (azul médio)
+    verbaEntries.forEach(([key, { label, type }], idx) => {
+      const colIndex = idx + 3; // 1-indexed, começa na coluna 3
+      const cell = headerRow.getCell(colIndex);
+      if (type === 'desconto') {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'C0392B' } }; // vermelho
+      } else {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '27AE60' } }; // verde
+      }
+      cell.font = { bold: true, color: { argb: 'FFFFFF' } };
+      cell.alignment = { vertical: 'middle', horizontal: 'center' };
+    });
+
+    baseEntries.forEach(([key, label], idx) => {
+      const colIndex = verbaEntries.length + idx + 3;
+      const cell = headerRow.getCell(colIndex);
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '2980B9' } }; // azul médio
+      cell.font = { bold: true, color: { argb: 'FFFFFF' } };
+      cell.alignment = { vertical: 'middle', horizontal: 'center' };
+    });
   }
 
-  // Estilização dos cabeçalhos da planilha
-  const headerRow = worksheet.getRow(1);
-  headerRow.font = { bold: true, color: { argb: 'FFFFFF' } };
-  headerRow.fill = {
-    type: 'pattern',
-    pattern: 'solid',
-    fgColor: { argb: '1E3A8A' }
-  };
-  headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+  // Estilização base dos cabeçalhos para Cartão de Ponto (holerite já estilizou internamente)
+  if (job.tipo !== 'holerite') {
+    const baseHeaderRow = worksheet.getRow(1);
+    baseHeaderRow.font = { bold: true, color: { argb: 'FFFFFF' } };
+    baseHeaderRow.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: '1E3A8A' }
+    };
+    baseHeaderRow.alignment = { vertical: 'middle', horizontal: 'center' };
+  }
 
   const buffer = await workbook.xlsx.writeBuffer();
 
