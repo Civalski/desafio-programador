@@ -428,6 +428,52 @@ body {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
 }
 
+/* Excel Grid View for Holerite */
+.excel-grid-wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.excel-grid-table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.excel-grid-table th {
+  background: #f8fafc;
+  border-right: 1px solid var(--border-color);
+  border-bottom: 2px solid var(--border-color);
+  padding: 0.5rem 0.65rem;
+  white-space: nowrap;
+}
+
+.excel-grid-table td {
+  border-right: 1px solid var(--border-color);
+  padding: 0.35rem 0.45rem;
+}
+
+.header-badge {
+  display: inline-block;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  text-transform: uppercase;
+  width: fit-content;
+}
+
+.header-badge.verba {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
+.header-badge.base {
+  background: #f0fdf4;
+  color: #15803d;
+}
+
 .spinner {
   display: inline-block;
   width: 20px;
@@ -441,3 +487,4 @@ body {
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+
