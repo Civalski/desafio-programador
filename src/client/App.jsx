@@ -8,6 +8,20 @@ import { LoginForm } from './components/LoginForm.jsx';
 
 const requiresLogin = import.meta.env.VITE_REQUIRE_LOGIN === 'true';
 
+async function readJsonResponse(response, fallbackMessage) {
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    await response.text();
+    throw new Error(fallbackMessage);
+  }
+
+  try {
+    return await response.json();
+  } catch {
+    throw new Error(fallbackMessage);
+  }
+}
+
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(() => !requiresLogin || sessionStorage.getItem('quick_filler_authenticated') === 'true');
 
@@ -27,7 +41,7 @@ export default function App() {
       try {
         const res = await fetch(`/api/transcricoes/${jobId}`);
         if (!res.ok) throw new Error('Falha ao consultar status da transcrição.');
-        const data = await res.json();
+        const data = await readJsonResponse(res, 'O servidor retornou uma resposta inválida ao consultar a transcrição.');
 
         if (data.progress) {
           setJobProgress(data.progress);
@@ -78,11 +92,11 @@ export default function App() {
       });
 
       if (!res.ok) {
-        const errJson = await res.json();
+        const errJson = await readJsonResponse(res, 'O servidor não conseguiu receber o arquivo. Tente novamente.');
         throw new Error(errJson.erro || 'Erro ao enviar arquivo.');
       }
 
-      const resJson = await res.json();
+      const resJson = await readJsonResponse(res, 'O servidor retornou uma resposta inválida ao iniciar a transcrição.');
 
       if (resJson.status === 'concluido') {
         setExtractedData(resJson.value);
@@ -111,7 +125,7 @@ export default function App() {
     });
 
     if (!res.ok) {
-      const errData = await res.json();
+      const errData = await readJsonResponse(res, 'O servidor não conseguiu salvar as alterações.');
       throw new Error(errData.erro || 'Falha ao salvar correções.');
     }
   };
