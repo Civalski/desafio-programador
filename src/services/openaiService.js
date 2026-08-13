@@ -332,7 +332,10 @@ export class OpenAIService {
         }
 
         console.log(JSON.stringify({ event: 'openai_attempt', model, attempt: modelIndex + 1 }));
-        const response = await this.client.chat.completions.create(requestParams);
+        const response = await this.client.chat.completions.create(requestParams, {
+          timeout: config.openaiTimeoutMs,
+          maxRetries: 0
+        });
         console.log(JSON.stringify({ event: 'openai_success', model, attempt: modelIndex + 1 }));
         return response.choices[0]?.message?.content || '{}';
       } catch (err) {
@@ -649,17 +652,17 @@ export class OpenAIService {
             });
             scannedImages = await rasterizePdfPages(filePath, scannedPageNumbers, { scale: config.visionScale });
           }
-          console.log(`ðŸ“„ Processando ${totalPages} pÃ¡ginas de holerite em paralelo via OpenAI...`);
+          console.log(`Processando ${totalPages} páginas de holerite via OpenAI...`);
           onProgress({
             current: 0,
             total: totalPages,
             percentage: 10,
-            message: `PDF possui ${totalPages} pÃ¡gina(s). Extraindo dados via OpenAI...`,
-            log: `PDF possui ${totalPages} pagina(s). Iniciando analise com IA...`
+            message: `PDF possui ${totalPages} página(s). Extraindo dados via OpenAI...`,
+            log: `PDF possui ${totalPages} página(s). Iniciando análise com IA...`
           });
 
           let completedPages = 0;
-          const pagePromises = pdfPages.map(async (pageObj) => {
+          const processPage = async (pageObj) => {
             try {
               const density = pageObj.density || analyzePageDensity(pageObj.rawContent);
               const strategy = selectExtractionStrategy(density, false);
@@ -800,9 +803,15 @@ export class OpenAIService {
               });
               return null;
             }
-          });
+          };
 
-          const pageOutcomes = await Promise.all(pagePromises);
+          // Cada página já dispara múltiplos agentes. Limitar páginas simultâneas
+          // evita uma rajada de requisições em PDFs escaneados.
+          const pageOutcomes = await mapWithConcurrency(
+            pdfPages,
+            config.openaiPageConcurrency,
+            processPage
+          );
           const extractedPagesRaw = pageOutcomes.filter(Boolean);
           if (pageOutcomes.some(result => !result)) throw new Error('OPENAI_EXTRACTION_PARTIAL: uma ou mais páginas falharam; retomando somente as pendentes.');
           if (scannedPageNumbers.length && extractedPagesRaw.length === 0) {

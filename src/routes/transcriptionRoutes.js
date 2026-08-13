@@ -91,26 +91,31 @@ export async function transcriptionRoutes(fastify) {
       return reply.status(400).send({ erro: 'O PDF está corrompido ou não pôde ser lido.' });
     }
 
-    const processJob = async (automaticRetry = false) => {
+    const processJob = async () => {
       try {
-        const docTypeMapping = 'payroll';
-        const persistence = createPersistenceQueue();
-        const onProgress = progUpdate => persistence.enqueue(() => transcriptionStore.updateJobProgress(job.id, progUpdate));
-        const onPageCompleted = result => persistence.enqueue(() => transcriptionStore.saveResult(job.id, result.resultKey, result));
-        const completedResultKeys = await transcriptionStore.getCompletedResultKeys(job.id);
-        const completedResults = await transcriptionStore.getCheckpointResults(job.id);
-        const parsedResult = await aiProviderService.parseDocument(tempFilePath, docTypeMapping, { onProgress, onPageCompleted, completedResultKeys, completedResults });
-        await persistence.flush();
-
-        // Se o resultado for válido, conclui o job
-        await transcriptionStore.completeJob(job.id, parsedResult);
-      } catch (error) {
-        request.log.error({ err: error, jobId: job.id }, 'Falha no processamento do documento');
-        if (!automaticRetry) {
-          await transcriptionStore.startRetry(job.id, 'Falha transitória; retomando páginas pendentes...');
-          return processJob(true);
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            const persistence = createPersistenceQueue();
+            const onProgress = update => persistence.enqueue(() => transcriptionStore.updateJobProgress(job.id, update));
+            const onPageCompleted = result => persistence.enqueue(() => transcriptionStore.saveResult(job.id, result.resultKey, result));
+            const completedResultKeys = await transcriptionStore.getCompletedResultKeys(job.id);
+            const completedResults = await transcriptionStore.getCheckpointResults(job.id);
+            const parsedResult = await aiProviderService.parseDocument(tempFilePath, 'payroll', { onProgress, onPageCompleted, completedResultKeys, completedResults });
+            await persistence.flush();
+            await transcriptionStore.completeJob(job.id, parsedResult);
+            return;
+          } catch (error) {
+            request.log.error({ err: error, jobId: job.id, attempt: attempt + 1 }, 'Falha no processamento do documento');
+            if (attempt === 1) {
+              await transcriptionStore.failJob(job.id, error.message || 'Falha no processamento do documento');
+              return;
+            }
+            await transcriptionStore.updateJobProgress(job.id, {
+              message: 'Falha transitória; retomando páginas pendentes...',
+              log: 'A primeira tentativa falhou. Iniciando uma retomada limitada.'
+            });
+          }
         }
-        await transcriptionStore.failJob(job.id, error.message || 'Falha no processamento do documento');
       } finally {
         // Limpa o arquivo temporário
         if (fs.existsSync(tempFilePath)) {

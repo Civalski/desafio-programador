@@ -6,23 +6,44 @@ Aplicação web para extrair dados de holerites em PDF, revisar a transcrição 
 
 Aplicação publicada em: https://desafio-programador.vercel.app/
 
-## Arquitetura
+## Como a extração funciona
 
 ```mermaid
-flowchart LR
-    U[Usuário] --> UI[React + Vite\nInterface de revisão]
-    UI -->|upload, consulta e edição| API[Fastify API\nVercel]
-    API -->|cria job e salva PDF| STATE[State Worker\nCloudflare Workers]
-    STATE --> D1[(Cloudflare D1\njobs e resultados por página)]
-    STATE --> R2[(Cloudflare R2\nPDFs originais)]
-    API -->|processamento assíncrono| PIPE[Pipeline de extração]
-    PIPE --> PREP[Preparação local\ndensidade, segmentação e rasterização]
-    PREP -->|texto ou imagem| AI[OpenAI API\nextração obrigatória]
-    AI --> STATE
-    STATE -->|status e resultado| API
-    API -->|polling e exportação XLSX/CSV/JSON| UI
-    CRON[Worker Cron\ndiário] -->|remove dados expirados| STATE
+flowchart TD
+    INPUT["PDF do holerite enviado pelo usuário"] --> VALIDATE["Validação do arquivo e criação do job"]
+    VALIDATE --> INSPECT["Leitura local por página<br/>texto, densidade e segmentação"]
+
+    INSPECT --> ROUTE{"O PDF tem<br/>camada de texto?"}
+    ROUTE -->|Sim| TEXT["Texto estruturado da página"]
+    ROUTE -->|Não| RASTER["Rasterização da página"]
+    RASTER --> OCR["OCR local<br/>texto e nível de confiança"]
+    OCR --> VISION["Imagem da página para Vision"]
+
+    TEXT --> LOCAL["Pré-extração determinística<br/>linhas, códigos, valores e totais candidatos"]
+    OCR --> LOCAL
+    TEXT --> AGENTS
+    VISION --> AGENTS
+
+    subgraph AGENTS["Agentes de IA executados em paralelo"]
+        ID["Agente de identificação<br/>colaborador e competência"]
+        FIELDS["Agente de verbas<br/>proventos e descontos"]
+        SUMMARY["Agente de rodapé<br/>bases, totais e referências"]
+    end
+
+    LOCAL --> MERGE["Reconciliação<br/>e normalização dos resultados"]
+    ID --> MERGE
+    FIELDS --> MERGE
+    SUMMARY --> MERGE
+    MERGE --> AUDIT["Auditoria de cobertura<br/>confere itens visíveis, totais e confiança do OCR"]
+    AUDIT --> DECISION{"Há lacunas ou<br/>sinais de baixa confiança?"}
+    DECISION -->|Sim| RECOVERY["Agente de auditoria<br/>recupera somente os itens pendentes"]
+    RECOVERY --> MERGE
+    DECISION -->|Não| OUTPUT["Resultado estruturado por página<br/>verbas, bases, totais e alertas"]
+    OUTPUT --> REVIEW["Persistência, revisão humana e correções"]
+    REVIEW --> EXPORT["Exportação em XLSX, CSV ou JSON"]
 ```
+
+O roteamento é feito por página: PDFs com texto seguem para os agentes com a camada textual; PDFs escaneados passam por rasterização, OCR local e Vision. Os agentes especializados dividem a leitura em identificação, verbas e rodapé. Depois, uma auditoria compara o que foi extraído com os itens detectados localmente e aciona um agente de recuperação apenas quando necessário.
 
 Em produção, a API retorna `202 Accepted` e conclui o processamento em segundo plano. Cada página extraída é persistida separadamente, permitindo acompanhar o progresso e retomar a execução sem reprocessar as páginas concluídas.
 

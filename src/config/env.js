@@ -28,6 +28,8 @@ export const config = {
   openaiPayrollFallbackModel: process.env.OPENAI_PAYROLL_FALLBACK_MODEL || 'gpt-5.6-sol',
   visionScale: Number(process.env.OPENAI_VISION_SCALE || 2),
   openaiConcurrency: Math.max(1, Number(process.env.OPENAI_CONCURRENCY || 3)),
+  openaiPageConcurrency: Math.max(1, Number(process.env.OPENAI_PAGE_CONCURRENCY || 2)),
+  openaiTimeoutMs: Math.max(5_000, Number(process.env.OPENAI_TIMEOUT_MS || 40_000)),
   payrollBatchSize: Math.max(1, Number(process.env.PAYROLL_BATCH_SIZE || 6)),
   ocrMinimumConfidence: Number(process.env.OCR_MINIMUM_CONFIDENCE || 0.72),
   dataInputDir: process.env.DATA_INPUT_DIR 
