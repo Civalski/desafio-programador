@@ -18,7 +18,7 @@ test('barreira rejeita prompt sem contexto ou acima de seis alvos', () => {
 
 test('métricas legadas não exibem 0/0 quando há itens determinísticos', () => {
   assert.deepEqual(normalizeExtractionMetrics({ expectedCount: 0, localItems: 20, executedPrompts: 0 }), {
-    visibleItems: 20, deterministicItems: 20, aiRecoveredItems: 0, pendingItems: 0,
+    visibleItems: 20, deterministicItems: 20, aiRecoveredItems: 0, aiValidatedItems: 0, pendingItems: 0,
     coverage: 1, plannedBatches: 0, executedPrompts: 0, strategy: null
   });
 });

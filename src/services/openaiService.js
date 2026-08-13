@@ -11,9 +11,25 @@ import { buildPayrollInventory, planPayrollPromptBatches, auditPayrollCoverage, 
 import { extractPayrollLocal } from '../utils/localPayrollExtractor.js';
 import { recognizePayrollImage } from '../utils/localOcr.js';
 import { catalogHintsForLabels } from '../utils/payrollCatalog.js';
-import { assertPromptBatch, promptBatchLog } from '../utils/adaptivePromptPlanner.js';
+import { assertPromptBatch, createAdaptiveBatches, promptBatchLog } from '../utils/adaptivePromptPlanner.js';
 
 const pdfExtract = new PDFExtract();
+
+export function hasVerifiedAiExecution(result = {}) {
+  const extraction = result.extraction || result.extractionValidation || {};
+  return Number(extraction.executedPrompts || 0) > 0;
+}
+
+export function selectVerifiedAiCheckpoints(results = []) {
+  return results.filter(hasVerifiedAiExecution);
+}
+
+export function assertVerifiedAiExecution(results = []) {
+  const invalidResults = results.filter(result => !hasVerifiedAiExecution(result));
+  if (invalidResults.length) {
+    throw new Error(`OPENAI_REQUIRED_EXECUTION_MISSING: ${invalidResults.length} unidade(s) sem chamada de IA confirmada.`);
+  }
+}
 
 async function mapWithConcurrency(items, limit, mapper) {
   const results = new Array(items.length);
@@ -492,6 +508,9 @@ export class OpenAIService {
           executedPrompts: 1,
           localItems: 0,
           aiItems: fields.length + bases.length,
+          deterministicItems: 0,
+          aiValidatedItems: fields.length + bases.length,
+          aiRecoveredItems: fields.length + bases.length,
           ocrConfidence: null,
           conflicts: [],
           sources: ['vision']
@@ -574,6 +593,8 @@ export class OpenAIService {
     const competency = identity?.competency || {};
     const inferred = inferCompetencyFromText(sourceText) || {};
     const localCount = local.fields.length + local.bases.length + Object.values(local.totals).filter(Boolean).length;
+    const finalCount = (reconciled.fields || []).length + (reconciled.bases || []).length + Object.values(reconciled.totals || {}).filter(Boolean).length;
+    const aiValidatedItems = (ai.fields || []).length + (ai.bases || []).length;
     return {
       page: pageObj.pageNum,
       resultKey: pageObj.resultKey || `page:${pageObj.pageNum}`,
@@ -589,6 +610,9 @@ export class OpenAIService {
         strategy: isVision ? 'LOCAL_OCR_AGENTIC_VISION' : 'LOCAL_TEXT_AGENTIC',
         plannedPrompts: plan.plannedPrompts + (didRecovery ? 1 : 0), executedPrompts,
         localItems: localCount, aiItems: (ai.fields || []).length + (ai.bases || []).length,
+        deterministicItems: localCount,
+        aiValidatedItems,
+        aiRecoveredItems: Math.max(0, finalCount - localCount),
         ocrConfidence: ocr?.confidence ?? null,
         conflicts, sources: [...new Set([...(reconciled.fields || []), ...(reconciled.bases || [])].map(item => item.evidenceType).filter(Boolean))]
       }
@@ -598,38 +622,97 @@ export class OpenAIService {
   async runFichaBlock(block) {
     const metadata = { sourcePage: block.pageNum, sourceRegion: block.blockIndex };
     const spatial = extractBlockDataLocal(block.items || [], metadata);
-    let reconciled = spatial;
-    let validation = validateFichaExtraction(block.rawText, reconciled);
+    let validation = validateFichaExtraction(block.rawText, spatial);
     let executedPrompts = 0;
     const inventory = buildPayrollInventory(block.rawText, { ...metadata, recordKey: block.recordKey });
     const promptPlan = planPayrollPromptBatches(inventory, { maxCodesPerPrompt: config.payrollBatchSize, maxChars: config.payrollPromptMaxChars });
 
-    // A geometria é a fonte primária. A IA recebe somente blocos com lacunas
-    // objetivamente demonstradas pela auditoria e não pode sobrescrevê-la.
-    if (!validation.valid && inventory.expectedCodes.length <= config.payrollBatchSize && block.rawText.length <= config.payrollPromptMaxChars) {
+    // A OpenAI é obrigatória na extração. A geometria local prepara a evidência
+    // e funciona como contraprova; cobertura local de 100% não pode pular a IA.
+    const runBatch = async ({ id, kind, items, prompt, payload }) => {
+      const evidence = items.map(item => item.evidence || item.line || '').filter(Boolean).join('\n');
+      const batch = {
+        id,
+        kind,
+        reason: kind === 'ambiguous' ? 'ambiguous_evidence' : 'required_ai_extraction',
+        recordKey: block.recordKey,
+        region: `page:${block.pageNum}:block:${block.blockIndex}`,
+        strategy: 'FICHA_ADAPTIVE_AI',
+        targetCount: items.length,
+        numericValueCount: (evidence.match(/-?\d+(?:[.,]\d+)?/g) || []).length,
+        payloadChars: evidence.length,
+        blocked: items.some(item => item.oversizedEvidence)
+      };
       executedPrompts++;
-      const completionJson = await this.generateCompletionWithFallback([
-        { role: 'system', content: PROMPT_FICHA_FINANCEIRA_BLOCK },
-        {
-          role: 'user',
-          content: `COMPETÊNCIA: ${block.month}/${block.year}\nTIPO: ${block.payrollType}\nLACUNAS: ${JSON.stringify(validation)}\nRESULTADO ESPACIAL (preservar): ${JSON.stringify(spatial)}\n\nEVIDÊNCIA:\n${block.rawText}`
-        }
-      ]);
-      let recovery = {};
-      try { recovery = JSON.parse(completionJson); } catch { recovery = {}; }
-      reconciled = reconcilePayrollExtractions(spatial, recovery, {
-        sourcePage: block.pageNum,
-        sourceRegion: block.blockIndex,
-        evidenceType: 'ai_recovery'
-      });
-      validation = validateFichaExtraction(block.rawText, reconciled);
+      const raw = await this.executePayrollPrompt([
+        { role: 'system', content: prompt },
+        { role: 'user', content: payload(evidence) }
+      ], batch);
+      try { return JSON.parse(raw); } catch { return {}; }
+    };
+
+    const context = `COMPETÊNCIA: ${block.month}/${block.year}\nTIPO: ${block.payrollType}`;
+    const tasks = [
+      ...promptPlan.fieldBatches.map((items, index) => () => runBatch({
+        id: `${block.recordKey}:fields:${index}`,
+        kind: 'fields',
+        items,
+        prompt: PROMPT_FIELDS_AGENT,
+        payload: evidence => `${context}\nALVOS: ${JSON.stringify(items.map(({ code, label, category }) => ({ code, label, category })))}\nRESULTADO ESPACIAL (somente apoio): ${JSON.stringify(spatial.fields.filter(field => items.some(item => item.code === field.code)))}\nEVIDÊNCIA:\n${evidence}`
+      })),
+      ...promptPlan.lineBatches.map((items, index) => () => runBatch({
+        id: `${block.recordKey}:ambiguous:${index}`,
+        kind: 'ambiguous',
+        items,
+        prompt: PROMPT_FICHA_FINANCEIRA_BLOCK,
+        payload: evidence => `${context}\nResolva somente os itens visíveis nestas linhas ambíguas. Não invente.\nEVIDÊNCIA:\n${evidence}`
+      }))
+    ];
+
+    const summarySourceBatches = promptPlan.summaryBatches.length
+      ? promptPlan.summaryBatches
+      : createAdaptiveBatches(
+          String(block.rawText || '').split('\n').filter(Boolean).map((line, index) => ({ index, line, evidence: line })),
+          { maxTargets: config.payrollBatchSize, maxChars: config.payrollPromptMaxChars, prefix: `${block.recordKey}:summary-source`, kind: 'summaries' }
+        ).map(batch => batch.items);
+    tasks.push(...summarySourceBatches.map((items, index) => () => runBatch({
+      id: `${block.recordKey}:summaries:${index}`,
+      kind: 'summaries',
+      items,
+      prompt: PROMPT_SUMMARY_AGENT,
+      payload: evidence => `${context}\nRESULTADO ESPACIAL (somente apoio): ${JSON.stringify({ bases: spatial.bases, totals: spatial.totals })}\nEVIDÊNCIA:\n${evidence}`
+    })));
+
+    // Um bloco vazio ainda passa pela IA e falha de forma observável caso não
+    // exista evidência suficiente, em vez de ser aceito silenciosamente.
+    if (!tasks.length) {
+      const fallbackItems = [{ evidence: String(block.rawText || 'Bloco sem texto extraível') }];
+      tasks.push(() => runBatch({
+        id: `${block.recordKey}:fallback:0`,
+        kind: 'ambiguous',
+        items: fallbackItems,
+        prompt: PROMPT_FICHA_FINANCEIRA_BLOCK,
+        payload: evidence => `${context}\nEVIDÊNCIA:\n${evidence}`
+      }));
     }
+
+    const aiParts = await mapWithConcurrency(tasks, config.openaiConcurrency, task => task());
+    let ai = { fields: [], bases: [], totals: {} };
+    for (const part of aiParts) {
+      ai = reconcilePayrollExtractions(ai, part || {}, { ...metadata, evidenceType: 'ai' });
+    }
+    let reconciled = reconcilePayrollExtractions(ai, spatial, { ...metadata, evidenceType: 'ai' });
+    const aiTotals = Object.fromEntries(Object.entries(ai.totals || {}).filter(([, value]) => value !== null && value !== undefined && value !== ''));
+    reconciled.totals = { ...(spatial.totals || {}), ...aiTotals };
+    validation = validateFichaExtraction(block.rawText, reconciled);
 
     const warnings = [...validation.warnings];
     const deterministicItems = spatial.fields.length + spatial.bases.length + Object.values(spatial.totals).filter(value => value !== null && value !== undefined && value !== '').length;
     const finalItems = (reconciled.fields?.length || 0) + (reconciled.bases?.length || 0) + Object.values(reconciled.totals || {}).filter(value => value !== null && value !== undefined && value !== '').length;
     const visibleItems = Math.max(validation.expectedCount || 0, deterministicItems);
     const aiRecoveredItems = Math.max(0, finalItems - deterministicItems);
+    const aiValidatedItems = [...(reconciled.fields || []), ...(reconciled.bases || [])]
+      .filter(item => String(item.evidenceType || '').startsWith('ai')).length;
     const pendingItems = Math.max(0, visibleItems - Math.min(visibleItems, finalItems));
     const totalValues = Object.values(reconciled.totals || {}).filter(value => value !== null && value !== undefined && value !== '');
     if (totalValues.length === 3 && !hasConsistentPayrollTotals(reconciled.totals)) {
@@ -653,14 +736,15 @@ export class OpenAIService {
         ...validation,
         valid: validation.valid && warnings.length === 0,
         warnings,
-        strategy: executedPrompts ? 'SPATIAL_TEXT_WITH_AI_RECOVERY' : 'SPATIAL_TEXT',
+        strategy: 'FICHA_ADAPTIVE_AI',
         visibleItems,
         deterministicItems,
         aiRecoveredItems,
+        aiValidatedItems,
         pendingItems,
         coverage: visibleItems ? (visibleItems - pendingItems) / visibleItems : 1,
-        plannedBatches: promptPlan.fieldBatches.length + promptPlan.lineBatches.length + promptPlan.summaryPasses,
-        plannedPrompts: promptPlan.fieldBatches.length + promptPlan.lineBatches.length + promptPlan.summaryPasses,
+        plannedBatches: tasks.length,
+        plannedPrompts: tasks.length,
         executedPrompts,
         localItems: deterministicItems,
         aiItems: aiRecoveredItems,
@@ -728,6 +812,8 @@ export class OpenAIService {
 
       try {
           // Extrai o PDF bruto via pdfExtract para verificar se Ã© Ficha Financeira
+          const verifiedCompletedResults = selectVerifiedAiCheckpoints(options.completedResults || []);
+          const verifiedCompletedResultKeys = new Set(verifiedCompletedResults.map(result => result.resultKey).filter(Boolean));
           const pdfRawData = await new Promise((resolve, reject) => {
             pdfExtract.extract(filePath, {}, (err, res) => {
               if (err) return reject(err);
@@ -738,10 +824,9 @@ export class OpenAIService {
           const isFicha = detectFichaFinanceira(pdfRawData.pages);
 
           if (isFicha) {
-            const completedResultKeys = new Set(options.completedResultKeys || []);
             const blocks = segmentAllMonthBlocks(pdfRawData.pages)
               .map(block => ({ ...block, resultKey: `page:${block.pageNum}:block:${block.blockIndex}` }))
-              .filter(block => !completedResultKeys.has(block.resultKey));
+              .filter(block => !verifiedCompletedResultKeys.has(block.resultKey));
             console.log(`ðŸ“„ Documento identificado como Ficha Financeira: ${blocks.length} blocos mensais detectados.`);
             onProgress({
               current: 0,
@@ -752,7 +837,7 @@ export class OpenAIService {
             });
 
             let completedBlocks = 0;
-            const blockPromises = blocks.map(async (block, bIdx) => {
+            const blockTasks = blocks.map((block, bIdx) => async () => {
               try {
                 console.log(`ðŸ” [OpenAI] Extraindo bloco ${bIdx + 1}/${blocks.length}: CompetÃªncia ${block.month}/${block.year} (PÃ¡g ${block.pageNum})...`);
 
@@ -837,10 +922,11 @@ export class OpenAIService {
               }
             });
 
-            const blockOutcomes = await Promise.all(blockPromises);
+            const blockOutcomes = await mapWithConcurrency(blockTasks, config.openaiPageConcurrency, task => task());
             const extractedBlocksRaw = blockOutcomes.filter(Boolean);
             if (blockOutcomes.some(result => !result)) throw new Error('OPENAI_EXTRACTION_PARTIAL: um ou mais blocos falharam; retomando somente os pendentes.');
-            const allBlocksRaw = [...(options.completedResults || []), ...extractedBlocksRaw];
+            const allBlocksRaw = [...verifiedCompletedResults, ...extractedBlocksRaw];
+            assertVerifiedAiExecution(allBlocksRaw);
             const parsedObj = { pages: allBlocksRaw };
             const normalized = normalizePayrollResponse(parsedObj);
             const validationWarnings = allBlocksRaw.flatMap(block => (block.extractionValidation?.valid ? [] : block.extractionValidation?.warnings || []).map(message => `${block.resultKey}: ${message}`));
@@ -852,10 +938,9 @@ export class OpenAIService {
           }
 
           // Caso padrÃ£o (Holerite comum por pÃ¡gina)
-          const completedResultKeys = new Set(options.completedResultKeys || []);
           const sourcePages = await this.extractPdfTextPages(filePath);
           const pdfPages = buildStandardProcessingUnits(sourcePages)
-            .filter(page => !completedResultKeys.has(page.resultKey) && !completedResultKeys.has(`page:${page.pageNum}`));
+            .filter(page => !verifiedCompletedResultKeys.has(page.resultKey) && !verifiedCompletedResultKeys.has(`page:${page.pageNum}`));
           const totalPages = pdfPages.length;
           const scannedPageNumbers = pdfPages
             .filter(page => selectExtractionStrategy(page.density, false) === 'VISION_SINGLE_PASS')
@@ -1037,7 +1122,9 @@ export class OpenAIService {
           if (scannedPageNumbers.length && extractedPagesRaw.length === 0) {
             throw new Error('VISION_EXTRACTION_UNAVAILABLE: nenhuma pagina escaneada foi extraida pela API.');
           }
-          const parsedObj = { pages: [...(options.completedResults || []), ...extractedPagesRaw] };
+          const allPagesRaw = [...verifiedCompletedResults, ...extractedPagesRaw];
+          assertVerifiedAiExecution(allPagesRaw);
+          const parsedObj = { pages: allPagesRaw };
           const normalized = normalizePayrollResponse(parsedObj);
 
           if (normalized.pages?.[0]?.fields?.length) {

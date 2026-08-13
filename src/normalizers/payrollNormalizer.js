@@ -324,6 +324,7 @@ export function normalizePayrollResponse(rawData, options = {}) {
     const visibleItems = normalizedMetrics.reduce((sum, metrics) => sum + metrics.visibleItems, 0);
     const deterministicItems = normalizedMetrics.reduce((sum, metrics) => sum + metrics.deterministicItems, 0);
     const aiRecoveredItems = normalizedMetrics.reduce((sum, metrics) => sum + metrics.aiRecoveredItems, 0);
+    const aiValidatedItems = normalizedMetrics.reduce((sum, metrics) => sum + metrics.aiValidatedItems, 0);
     const pendingItems = normalizedMetrics.reduce((sum, metrics) => sum + metrics.pendingItems, 0);
     result.audit = {
       ...(result.audit || {}),
@@ -331,7 +332,7 @@ export function normalizePayrollResponse(rawData, options = {}) {
       warnings: [...(result.audit?.warnings || []), ...extractionWarnings],
       extractionMetrics: {
         units: extractionPages.length,
-        visibleItems, deterministicItems, aiRecoveredItems, pendingItems,
+        visibleItems, deterministicItems, aiRecoveredItems, aiValidatedItems, pendingItems,
         coverage: visibleItems ? (visibleItems - pendingItems) / visibleItems : 1,
         plannedBatches: normalizedMetrics.reduce((sum, metrics) => sum + metrics.plannedBatches, 0),
         plannedPrompts: normalizedMetrics.reduce((sum, metrics) => sum + metrics.plannedBatches, 0),
@@ -344,8 +345,8 @@ export function normalizePayrollResponse(rawData, options = {}) {
   }
 
   const canonicalWarnings = result.pages.filter(page => page.reviewRequired).map(page => {
-    const competency = page.month && page.year ? `${page.month}/${page.year}` : `pÃ¡gina ${page.page}`;
-    return `${competency} (${page.payrollType}): itens ambÃ­guos ou conflitantes exigem revisÃ£o.`;
+    const competency = page.month && page.year ? `${page.month}/${page.year}` : `página ${page.page}`;
+    return `${competency} (${page.payrollType}): itens ambíguos ou conflitantes exigem revisão.`;
   });
   if (canonicalWarnings.length) {
     result.audit = {

@@ -102,6 +102,7 @@ export function promptBatchLog(batch = {}, extra = {}) {
 export function normalizeExtractionMetrics(extraction = {}, fallback = {}) {
   const deterministicItems = Number(extraction.deterministicItems ?? extraction.localItems ?? fallback.deterministicItems ?? 0);
   const aiRecoveredItems = Number(extraction.aiRecoveredItems ?? extraction.aiItems ?? fallback.aiRecoveredItems ?? 0);
+  const aiValidatedItems = Number(extraction.aiValidatedItems ?? fallback.aiValidatedItems ?? 0);
   const declaredVisibleItems = Number(extraction.visibleItems ?? extraction.expectedCount ?? fallback.visibleItems ?? 0);
   const visibleItems = declaredVisibleItems > 0 ? declaredVisibleItems : deterministicItems + aiRecoveredItems;
   const legacyExtracted = Number(extraction.extractedCount ?? fallback.extractedItems ?? 0);
@@ -112,6 +113,7 @@ export function normalizeExtractionMetrics(extraction = {}, fallback = {}) {
     visibleItems,
     deterministicItems,
     aiRecoveredItems,
+    aiValidatedItems,
     pendingItems,
     coverage,
     plannedBatches: Number(extraction.plannedBatches ?? extraction.plannedPrompts ?? 0),

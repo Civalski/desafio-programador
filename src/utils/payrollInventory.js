@@ -32,6 +32,7 @@ export function buildPayrollInventory(text = '', metadata = {}) {
   const codes = [];
   const labels = [];
   const expectedSummaryLabels = [];
+  const expectedSummaries = [];
   const candidateCategories = [];
   const unresolvedLines = [];
   const codeOccurrences = new Map();
@@ -61,6 +62,12 @@ export function buildPayrollInventory(text = '', metadata = {}) {
       if (label && key && !seenLabels.has(key)) {
         seenLabels.add(key);
         expectedSummaryLabels.push(label);
+        expectedSummaries.push({
+          label,
+          identity: `${metadata.recordKey || metadata.sourceRegion || metadata.sourcePage || 'source'}:summary:${expectedSummaries.length + 1}`,
+          line: rawLine,
+          evidence: rawLine
+        });
       }
     } else if (!hasCodeLabel && MONEY.test(line)) {
       unresolvedLines.push({ line: rawLine, index: unresolvedLines.length + 1 });
@@ -74,6 +81,7 @@ export function buildPayrollInventory(text = '', metadata = {}) {
     evidenceType: metadata.evidenceType || 'text',
     expectedCodes: codes,
     expectedSummaryLabels,
+    expectedSummaries,
     candidateCategories,
     unresolvedLines,
     textLength: String(text).length
@@ -85,16 +93,19 @@ export function planPayrollPromptBatches(inventory = {}, options = {}) {
   const codes = inventory.expectedCodes || [];
   const unresolvedLines = inventory.unresolvedLines || [];
   const fieldPlans = createAdaptiveBatches(codes, { maxTargets: maxCodesPerPrompt, maxChars: options.maxChars, prefix: 'fields', kind: 'fields' });
+  const summaryTargets = inventory.expectedSummaries?.length
+    ? inventory.expectedSummaries
+    : (inventory.expectedSummaryLabels || []).map(label => ({ label, evidence: label }));
+  const summaryPlans = createAdaptiveBatches(summaryTargets, { maxTargets: maxCodesPerPrompt, maxChars: options.maxChars, prefix: 'summaries', kind: 'summaries' });
   const fieldBatches = fieldPlans.map(batch => batch.items);
   const lineBatches = [];
-  if (!codes.length) {
-    lineBatches.push(...createAdaptiveBatches(unresolvedLines.map(item => ({ ...item, evidence: item.line })), { maxTargets: maxCodesPerPrompt, maxChars: options.maxChars, prefix: 'ambiguous', kind: 'ambiguous' }).map(batch => batch.items));
-  }
+  lineBatches.push(...createAdaptiveBatches(unresolvedLines.map(item => ({ ...item, evidence: item.line })), { maxTargets: maxCodesPerPrompt, maxChars: options.maxChars, prefix: 'ambiguous', kind: 'ambiguous' }).map(batch => batch.items));
   return {
     maxCodesPerPrompt,
     fieldBatches,
     lineBatches,
-    summaryPasses: inventory.expectedSummaryLabels?.length ? Math.ceil(inventory.expectedSummaryLabels.length / maxCodesPerPrompt) : 0,
+    summaryBatches: summaryPlans.map(batch => batch.items),
+    summaryPasses: summaryPlans.length,
     plannedPrompts: 2 + fieldBatches.length + lineBatches.length
   };
 }

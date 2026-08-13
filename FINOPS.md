@@ -23,7 +23,7 @@ O custo principal depende da tabela de preços do `gpt-5.6-luna` no provedor con
 
 1. O pré-processamento local mede o conteúdo da página, sem extrair dados e sem custo de IA.
 2. Páginas simples usam uma chamada; páginas densas podem usar duas.
-3. PDFs escaneados usam visão. Fichas financeiras usam uma chamada por mês/bloco.
+3. PDFs escaneados usam visão. Fichas financeiras usam lotes adaptativos de até seis alvos por mês/bloco, com passagens separadas para verbas, resumos e linhas ambíguas; a quantidade aparece nas métricas da extração.
 4. Em erro, o sistema pode tentar outro modelo, elevando o custo.
 
 ## Principais riscos

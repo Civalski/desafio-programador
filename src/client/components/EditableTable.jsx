@@ -133,7 +133,7 @@ export function EditableTable({ data, onChangeData }) {
             {data.audit.status === 'review_required' && (data.audit.warnings || []).slice(0, 3).join(' ')}
             {data.audit.status === 'review_required' && (data.audit.warnings || []).length > 3 ? ` (+${data.audit.warnings.length - 3} alertas)` : ''}
             {data.audit.extractionMetrics && (
-              <span> Cobertura: {data.audit.extractionMetrics.extractedItems}/{data.audit.extractionMetrics.visibleItems ?? data.audit.extractionMetrics.expectedItems} itens ({Math.round((data.audit.extractionMetrics.coverage ?? 0) * 100)}%); {data.audit.extractionMetrics.deterministicItems ?? 0} determinÃ­sticos; {data.audit.extractionMetrics.aiRecoveredItems ?? 0} por IA; {data.audit.extractionMetrics.pendingItems ?? 0} pendentes; {data.audit.extractionMetrics.executedPrompts === 0 ? 'IA nÃ£o necessÃ¡ria' : `${data.audit.extractionMetrics.executedPrompts} prompts executados`}.</span>
+              <span> Cobertura: {data.audit.extractionMetrics.extractedItems}/{data.audit.extractionMetrics.visibleItems ?? data.audit.extractionMetrics.expectedItems} itens ({Math.round((data.audit.extractionMetrics.coverage ?? 0) * 100)}%); {data.audit.extractionMetrics.deterministicItems ?? 0} identificados localmente; {data.audit.extractionMetrics.aiValidatedItems ?? 0} validados pela IA; {data.audit.extractionMetrics.aiRecoveredItems ?? 0} recuperados pela IA; {data.audit.extractionMetrics.pendingItems ?? 0} pendentes; {data.audit.extractionMetrics.executedPrompts === 0 ? 'resultado inválido: confirmação por IA ausente' : `${data.audit.extractionMetrics.executedPrompts} prompts de IA executados`}.</span>
             )}
           </div>
         )}

@@ -47,6 +47,15 @@ test('planejador cria lotes de linhas quando o layout não possui códigos', () 
   assert.deepEqual(plan.lineBatches.map(batch => batch.length), [6, 6, 1]);
 });
 
+test('planejador envia linhas ambíguas à IA mesmo quando códigos foram identificados', () => {
+  const plan = planPayrollPromptBatches({
+    expectedCodes: [{ code: '10', label: 'Salário', evidence: '10 Salário 1.000,00' }],
+    unresolvedLines: [{ line: 'Base I.N.S.S. | F.G.T.S. do Mês 100,00' }]
+  });
+  assert.equal(plan.fieldBatches.length, 1);
+  assert.equal(plan.lineBatches.length, 1);
+});
+
 test('reconciliação preserva evidência determinística e completa lacunas da IA', () => {
   const result = reconcilePayrollExtractions(
     { fields: [{ code: '10', label: 'Salário Base', value: '3.000,00', evidenceType: 'text' }], bases: [{ label: 'Base INSS', value: '3.000,00' }] },
