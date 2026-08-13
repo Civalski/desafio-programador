@@ -5,6 +5,7 @@ import { waitUntil } from '@vercel/functions';
 import { transcriptionStore } from '../services/transcriptionStore.js';
 import { aiProviderService } from '../services/aiProvider.js';
 import { generateExport } from '../utils/exportUtils.js';
+import { isTimeCardEnabled } from '../config/features.js';
 
 /**
  * Registra as rotas da API HTTP no Fastify.
@@ -55,6 +56,12 @@ export async function transcriptionRoutes(fastify) {
     if (!tipo || (tipo !== 'cartao-ponto' && tipo !== 'holerite')) {
       return reply.status(400).send({
         erro: 'O parâmetro "tipo" é obrigatório e deve ser "cartao-ponto" ou "holerite"'
+      });
+    }
+
+    if (tipo === 'cartao-ponto' && !isTimeCardEnabled()) {
+      return reply.status(403).send({
+        erro: 'A transcrição de cartão de ponto está disponível somente no ambiente de desenvolvimento.'
       });
     }
 
