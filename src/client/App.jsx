@@ -96,7 +96,7 @@ export default function App() {
 
       if (!res.ok) {
         const errJson = await readJsonResponse(res, 'O servidor não conseguiu receber o arquivo. Tente novamente.');
-        throw new Error(errJson.erro || 'Erro ao enviar arquivo.');
+        throw new Error(errJson.erro || errJson.message || `Erro ao enviar arquivo (HTTP ${res.status}).`);
       }
 
       const resJson = await readJsonResponse(res, 'O servidor retornou uma resposta inválida ao iniciar a transcrição.');
