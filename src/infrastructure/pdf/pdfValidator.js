@@ -9,7 +9,7 @@ export class PdfValidator {
     const result = await this.assertReadable(filePath);
     const text = (result?.pages || []).slice(0, 4).flatMap(page => page.content || []).map(item => item.str || '').join(' ')
       .normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ');
-    if (!text.trim()) return { classification: 'scanned_unknown', textAvailable: false };
+    if (!text.trim()) return { classification: 'scanned_unknown', textAvailable: false, requiresVisualValidation: true };
 
     const timecardSignals = [/cartao\s+de\s+ponto/, /espelho\s+de\s+ponto/, /registro\s+de\s+ponto/, /entrada\s+saida/, /batidas?/, /jornada\s+de\s+trabalho/, /banco\s+de\s+horas/].filter(pattern => pattern.test(text)).length;
     // Layouts de holerite variam: nomes de colunas e tributos também são evidências.
@@ -22,9 +22,23 @@ export class PdfValidator {
       /periodo\s+(?:de\s+)?(?:pagamento|competencia)/, /vale\s+(?:transporte|refeicao|alimentacao)/
     ].filter(pattern => pattern.test(text)).length;
     const payrollIdentity = /holerite|contra\s*cheque|demonstrativo\s+de\s+(?:pagamento|remuneracao)|ficha\s+financeira/.test(text);
+    const explicitNonPayrollSignals = [
+      /contrato\s+de\s+(?:prestacao|locacao|compra|venda)/,
+      /nota\s+fiscal|danfe|chave\s+de\s+acesso/,
+      /fatura\s+(?:de|do)|boleto\s+(?:bancario|de)/,
+      /extrato\s+(?:bancario|de\s+conta)/
+    ].filter(pattern => pattern.test(text)).length;
 
     if (timecardSignals >= 1 && !payrollIdentity && payrollSignals < 2) return this.rejectNonPayroll('cartão ou espelho de ponto não é aceito. Envie somente folha de pagamento.');
-    if (!payrollIdentity && payrollSignals < 2) return this.rejectNonPayroll('o PDF não apresenta evidências suficientes de folha de pagamento.');
+    if (explicitNonPayrollSignals >= 1 && !payrollIdentity && payrollSignals < 2) return this.rejectNonPayroll('o PDF apresenta evidências de outro tipo de documento, não de uma folha de pagamento.');
+    // Uma camada OCR curta ou corrompida não prova que um PDF de imagem não seja
+    // holerite. Casos ambíguos devem seguir para a validação visual do pipeline.
+    if (!payrollIdentity && payrollSignals < 2) return {
+      classification: 'payroll_candidate',
+      textAvailable: true,
+      payrollSignals,
+      requiresVisualValidation: true
+    };
     return { classification: 'payroll', textAvailable: true, payrollSignals };
   }
   rejectNonPayroll(message) {

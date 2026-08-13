@@ -18,3 +18,15 @@ test('barreira documental rejeita PDF textual que não é folha de pagamento', a
   const validator = new PdfValidator(extractorWith('Contrato de prestação de serviços e condições comerciais'));
   await assert.rejects(() => validator.assertPayrollDocument('/fake.pdf'), error => error.code === 'DOCUMENT_NOT_PAYROLL');
 });
+
+test('barreira documental encaminha camada OCR parcial para validação visual', async () => {
+  const validator = new PdfValidator(extractorWith('FUNC 001 05/2024 x7 ilegível 1.234,56'));
+  const result = await validator.assertPayrollDocument('/fake.pdf');
+  assert.equal(result.classification, 'payroll_candidate');
+  assert.equal(result.requiresVisualValidation, true);
+});
+
+test('barreira documental encaminha texto ambíguo de imagem em vez de rejeitar', async () => {
+  const validator = new PdfValidator(extractorWith('texto fragmentado pelo scanner'));
+  assert.equal((await validator.assertPayrollDocument('/fake.pdf')).classification, 'payroll_candidate');
+});
