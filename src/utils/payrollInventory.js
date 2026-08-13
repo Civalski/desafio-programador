@@ -1,5 +1,6 @@
 import { normalizeLabelKey } from './labelNormalizer.js';
 import { classifyPayrollLabel } from './payrollCatalog.js';
+import { createAdaptiveBatches } from './adaptivePromptPlanner.js';
 
 const MONEY = /-?\d{1,3}(?:\.\d{3})*,\d{2}|-?\d+[.,]\d{2}/g;
 const CODE_LABEL = /(?:^|\||\s{2,})\s*[-–]?\s*(\d{1,4})\s+([A-Za-zÀ-ÿ][^|\n]{1,60})/g;
@@ -33,7 +34,7 @@ export function buildPayrollInventory(text = '', metadata = {}) {
   const expectedSummaryLabels = [];
   const candidateCategories = [];
   const unresolvedLines = [];
-  const seenCodes = new Set();
+  const codeOccurrences = new Map();
   const seenLabels = new Set();
 
   for (const rawLine of String(text).split('\n')) {
@@ -44,10 +45,11 @@ export function buildPayrollInventory(text = '', metadata = {}) {
       hasCodeLabel = true;
       const code = match[1].trim();
       const label = cleanLabel(match[2].split(/\s{2,}|\|/)[0]);
-      if (!seenCodes.has(code)) {
-        seenCodes.add(code);
+      {
+        const occurrence = (codeOccurrences.get(code) || 0) + 1;
+        codeOccurrences.set(code, occurrence);
         const classification = classifyPayrollLabel(label);
-        codes.push({ code, label, category: classification?.category || null, kind: classification?.kind || 'verba', line: rawLine });
+        codes.push({ code, label, occurrence, identity: `${metadata.recordKey || metadata.sourceRegion || metadata.sourcePage || 'source'}:${code}:${occurrence}`, category: classification?.category || null, kind: classification?.kind || 'verba', line: rawLine, evidence: rawLine });
         if (classification && !candidateCategories.some(item => item.category === classification.category)) candidateCategories.push(classification);
       }
     }
@@ -79,22 +81,20 @@ export function buildPayrollInventory(text = '', metadata = {}) {
 }
 
 export function planPayrollPromptBatches(inventory = {}, options = {}) {
-  const maxCodesPerPrompt = Math.max(1, Number(options.maxCodesPerPrompt || 6));
+  const maxCodesPerPrompt = Math.min(6, Math.max(1, Number(options.maxCodesPerPrompt || 6)));
   const codes = inventory.expectedCodes || [];
   const unresolvedLines = inventory.unresolvedLines || [];
-  const fieldBatches = [];
-  for (let index = 0; index < codes.length; index += maxCodesPerPrompt) {
-    fieldBatches.push(codes.slice(index, index + maxCodesPerPrompt));
-  }
+  const fieldPlans = createAdaptiveBatches(codes, { maxTargets: maxCodesPerPrompt, maxChars: options.maxChars, prefix: 'fields', kind: 'fields' });
+  const fieldBatches = fieldPlans.map(batch => batch.items);
   const lineBatches = [];
   if (!codes.length) {
-    for (let index = 0; index < unresolvedLines.length; index += maxCodesPerPrompt) lineBatches.push(unresolvedLines.slice(index, index + maxCodesPerPrompt));
+    lineBatches.push(...createAdaptiveBatches(unresolvedLines.map(item => ({ ...item, evidence: item.line })), { maxTargets: maxCodesPerPrompt, maxChars: options.maxChars, prefix: 'ambiguous', kind: 'ambiguous' }).map(batch => batch.items));
   }
   return {
     maxCodesPerPrompt,
     fieldBatches,
     lineBatches,
-    summaryPasses: 1,
+    summaryPasses: inventory.expectedSummaryLabels?.length ? Math.ceil(inventory.expectedSummaryLabels.length / maxCodesPerPrompt) : 0,
     plannedPrompts: 2 + fieldBatches.length + lineBatches.length
   };
 }
@@ -105,12 +105,18 @@ export function auditPayrollCoverage(inventory = {}, extraction = {}) {
   const fields = Array.isArray(extraction.fields) ? extraction.fields : [];
   const bases = Array.isArray(extraction.bases) ? extraction.bases : [];
   const totals = extraction.totals || {};
-  const extractedCodes = new Set(fields.map(field => String(field.code || '').trim()).filter(Boolean));
+  const extractedCodeCounts = new Map();
+  fields.forEach(field => { const code = String(field.code || '').trim(); if (code) extractedCodeCounts.set(code, (extractedCodeCounts.get(code) || 0) + 1); });
   const extractedLabels = new Set([...fields, ...bases].map(item => normalizeLabelKey(item.label || '')).filter(Boolean));
   if (present(totals.totalAdditions)) extractedLabels.add(normalizeLabelKey('Total Proventos'));
   if (present(totals.totalDeductions)) extractedLabels.add(normalizeLabelKey('Total Descontos'));
   if (present(totals.netValue)) extractedLabels.add(normalizeLabelKey('Valor Líquido'));
-  const missingCodes = (inventory.expectedCodes || []).filter(item => !extractedCodes.has(item.code));
+  const consumedCodes = new Map();
+  const missingCodes = (inventory.expectedCodes || []).filter(item => {
+    const used = (consumedCodes.get(item.code) || 0) + 1;
+    consumedCodes.set(item.code, used);
+    return used > (extractedCodeCounts.get(item.code) || 0);
+  });
   const missingSummaryLabels = (inventory.expectedSummaryLabels || []).filter(label => {
     const key = normalizeLabelKey(label);
     return ![...extractedLabels].some(extracted => extracted === key || extracted.includes(key) || key.includes(extracted));

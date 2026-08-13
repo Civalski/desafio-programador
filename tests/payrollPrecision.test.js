@@ -58,7 +58,7 @@ test('reconciliação preserva evidência determinística e completa lacunas da 
   assert.equal(result.fields[1].sourcePage, 2);
 });
 
-test('conflitos da mesma competência viram ocorrências exportáveis sem sobrescrita', () => {
+test('conflitos da mesma competência preservam o detalhe sem criar novas colunas', () => {
   const normalized = normalizePayrollResponse({ pages: [
     { page: 1, month: '01', year: '2024', fields: [{ code: '10', label: 'Salário', value: '1.000,00', sourcePage: 1 }] },
     { page: 2, month: '01', year: '2024', fields: [{ code: '10', label: 'Salário', value: '500,00', sourcePage: 2 }] }
@@ -67,9 +67,11 @@ test('conflitos da mesma competência viram ocorrências exportáveis sem sobres
   assert.equal(normalized.pages[0].fields.length, 2);
   assert.equal(normalized.pages[0].fields[1].occurrence, 2);
   const csv = exportToCsv({ id: 'x', tipo: 'holerite', value: normalized });
-  assert.match(csv, /Salário — ocorrência 2\/pág\. 2/);
+  assert.equal((csv.match(/"Salário"/g) || []).length, 1);
+  assert.match(csv, /Revisão necessária/);
   assert.match(csv, /1\.000,00/);
-  assert.match(csv, /500,00/);
+  assert.equal(normalized.pages[0].fields[1].value, '500,00');
+  assert.equal(normalized.pages[0].reviewRequired, true);
 });
 
 test('normalização preserva dados cadastrais e metadados de evidência', () => {

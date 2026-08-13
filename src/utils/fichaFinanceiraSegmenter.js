@@ -102,6 +102,19 @@ export function detectFichaFinanceira(pdfPages) {
   return totalMarkers > pdfPages.length;
 }
 
+/** Classifica o evento financeiro sem usar apenas a competência como identidade. */
+export function classifyFichaPayrollType(rawText = '') {
+  const text = String(rawText);
+  const normalized = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9\s.]/g, '');
+  const historicalRows = (normalized.match(/\b(?:371|374)\s+13/g) || []).length;
+  const liquidRows = (normalized.match(/salarioliquidonomes/g) || []).length;
+  if (historicalRows >= 3 || liquidRows >= 3) return 'historico_13';
+  if (/remuneracaomes|dias\/?horastrab/.test(normalized)) return 'normal';
+  if (/\b311\s+part\s+lucr|\b313\s+irf\s+part\s+result/.test(normalized)) return 'plr';
+  if (/\b13\b|13o\.\s*sal|13\s*sal/.test(normalized)) return 'decimo_terceiro';
+  return 'suplementar';
+}
+
 /**
  * Segmenta os itens de texto de uma página em blocos mensais usando o marcador "Mês: xxx-YY".
  * Cada bloco contém todos os itens entre dois marcadores consecutivos.
@@ -167,13 +180,15 @@ export function segmentMonthBlocks(pageItems, pageNum) {
     blocks.push({
       pageNum,
       blockIndex: markerIdx,
+      recordKey: `page:${pageNum}:block:${markerIdx}`,
       month: marker.month,
       year: marker.year,
       yStart,
       yEnd: nextMarker ? nextMarker.y - 1 : yStart + 200,
       items: blockItems,
       lines: blockLines,
-      rawText
+      rawText,
+      payrollType: classifyFichaPayrollType(rawText)
     });
   });
 
@@ -191,8 +206,28 @@ export function segmentAllMonthBlocks(pdfPages) {
 
   pdfPages.forEach((page, idx) => {
     const pageNum = idx + 1;
-    const items = page.content || [];
+    const items = (page.content || []).map(item => ({ ...item, sourcePage: pageNum }));
     const pageBlocks = segmentMonthBlocks(items, pageNum);
+
+    // Alguns blocos densos continuam no topo da página seguinte antes do
+    // primeiro marcador de mês. Anexa somente conteúdo financeiro comprovado,
+    // deslocando Y para não misturar linhas de páginas diferentes.
+    if (allBlocks.length && pageBlocks.length) {
+      const leadingItems = items.filter(item => item.y < pageBlocks[0].yStart - 2);
+      const leadingText = buildSpatialText(leadingItems);
+      const hasFinancialContinuation = /(?:^|\|)\s*\d{1,4}\s+[\p{L}]|TOT\.?RENDIMENTOS|TOTALDESCONTOS|BASEDECALCULO|SALARIOLIQUIDO/iu.test(leadingText);
+      if (hasFinancialContinuation) {
+        const previous = allBlocks[allBlocks.length - 1];
+        const previousMaxY = Math.max(...previous.items.map(item => item.y), previous.yStart);
+        const leadingMinY = Math.min(...leadingItems.map(item => item.y));
+        const shifted = leadingItems.map(item => ({ ...item, y: item.y + previousMaxY + 20 - leadingMinY }));
+        previous.items.push(...shifted);
+        previous.rawText = `${previous.rawText}\n${leadingText}`;
+        previous.yEnd = Math.max(...shifted.map(item => item.y));
+        previous.continuesOnPages = [...new Set([...(previous.continuesOnPages || [previous.pageNum]), pageNum])];
+        previous.payrollType = classifyFichaPayrollType(previous.rawText);
+      }
+    }
     allBlocks.push(...pageBlocks);
   });
 
@@ -264,7 +299,7 @@ export function buildSpatialText(items) {
  * @param {Array<Object>} blockItems  Items brutos do pdf.js-extract para o bloco
  * @returns {{ fields: Array, bases: Array, totals: Object }}
  */
-export function extractBlockDataLocal(blockItems) {
+export function extractBlockDataLocal(blockItems, metadata = {}) {
   const fields = [];
   const bases = [];
   const totals = { totalAdditions: null, totalDeductions: null, netValue: null };
@@ -289,7 +324,7 @@ export function extractBlockDataLocal(blockItems) {
   // Regex para "código label" em um único item: ex "91 Hr Adic Pericul", "40 Reembolso VR"
   const CODE_LABEL_REGEX = /^(\d{1,4})\s+([A-Za-zÀ-ÿ].{1,40})$/;
   // Regex para valor monetário: "290,92", "1.620,65", "0,00"
-  const MONEY_REGEX = /^-?[\d]+[\d\.,]*[\d]$/;
+  const MONEY_REGEX = /^-?\d+(?:[\.,]\d+)*%?$/;
 
   // === Auto-detecta o split entre coluna A e coluna B ===
   // Items com padrão "código label" (começam com dígito + espaço + letra)
@@ -335,6 +370,7 @@ export function extractBlockDataLocal(blockItems) {
   Array.from(rowMap.entries()).sort(([a], [b]) => a - b).forEach(([, rowItems]) => {
     const sorted = rowItems.sort((a, b) => a.x - b.x);
     const fullLine = sorted.map(i => i.str).join(' ').trim();
+    const rowSourcePage = sorted.find(item => item.sourcePage)?.sourcePage ?? metadata.sourcePage ?? metadata.pageNum ?? null;
 
     // === Bases e totais (processa na linha inteira) ===
     for (const { regex, label } of BASE_PATTERNS) {
@@ -345,7 +381,13 @@ export function extractBlockDataLocal(blockItems) {
         else if (label === 'Total Descontos') totals.totalDeductions = value;
         else if (label === 'Valor Líquido') totals.netValue = value;
         else if (!bases.some(b => b.label === label)) {
-          bases.push({ label, value });
+          bases.push({
+            label, value,
+            sourcePage: rowSourcePage,
+            sourceRegion: metadata.sourceRegion ?? metadata.blockIndex ?? null,
+            confidence: 0.99,
+            evidenceType: 'spatial_text'
+          });
         }
       }
     }
@@ -392,10 +434,16 @@ export function extractBlockDataLocal(blockItems) {
 
       if (!value) continue;
 
-      const key = `${code}-${rawLabel.toLowerCase()}`;
+      const key = `${code}-${rawLabel.toLowerCase()}-${reference}-${value}`;
       if (!seenFieldKeys.has(key)) {
         seenFieldKeys.add(key);
-        fields.push({ code, label: rawLabel, reference, value, type: colType });
+        fields.push({
+          code, label: rawLabel, reference, value, type: colType,
+          sourcePage: codeLabelItem.sourcePage ?? rowSourcePage,
+          sourceRegion: metadata.sourceRegion ?? metadata.blockIndex ?? null,
+          confidence: 0.99,
+          evidenceType: 'spatial_text'
+        });
       }
     }
   });

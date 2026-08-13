@@ -17,11 +17,17 @@ export class TranscriptionUseCases {
   async create({ type, file }) {
     if (!isSupportedDocumentType(type)) throw new ValidationError('O parâmetro "tipo" é obrigatório e deve ser "holerite"');
     if (!file?.buffer?.length) throw new ValidationError('O arquivo "arquivo" em formato PDF/imagem é obrigatório');
-    if (file.mimeType !== 'application/pdf' || !file.buffer.subarray(0, 5).equals(Buffer.from('%PDF-'))) throw new ValidationError('O arquivo deve ser um PDF válido (MIME application/pdf e assinatura %PDF-).');
+    if (!String(file.name || '').toLowerCase().endsWith('.pdf') || file.mimeType !== 'application/pdf' || !file.buffer.subarray(0, 5).equals(Buffer.from('%PDF-'))) throw new ValidationError('O arquivo deve ser um PDF válido (extensão .pdf, MIME application/pdf e assinatura %PDF-).');
+    try {
+      await this.temporaryFiles.withPdf('preflight', file.buffer, path => this.pdfValidator.assertPayrollDocument
+        ? this.pdfValidator.assertPayrollDocument(path)
+        : this.pdfValidator.assertReadable(path));
+    } catch (error) {
+      if (error?.code === 'DOCUMENT_NOT_PAYROLL') throw new ValidationError(error.message.replace('DOCUMENT_NOT_PAYROLL: ', ''));
+      throw new ValidationError('O PDF está corrompido ou não pôde ser lido.');
+    }
     const job = await this.transcriptionRepository.createJob(type, { name: file.name, size: file.buffer.length });
     await this.documentStorage.saveDocument(job, file.buffer);
-    try { await this.temporaryFiles.withPdf(job.id, file.buffer, path => this.pdfValidator.assertReadable(path)); }
-    catch { await this.transcriptionRepository.deleteJob(job.id); throw new ValidationError('O PDF está corrompido ou não pôde ser lido.'); }
     return job;
   }
 

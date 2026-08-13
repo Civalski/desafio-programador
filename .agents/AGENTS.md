@@ -4,7 +4,7 @@ Este arquivo orienta agentes de código neste repositório. `README.md` define o
 
 ## Fluxo de trabalho
 
-1. Antes de editar, leia `.harness/INDEX.md` e apenas os módulos pertinentes. Para contrato e domínio, priorize `README.md`; para critérios, `INSTRUCOES.md`.
+1. A cada solicitação do usuário, antes de responder, investigar ou editar, leia `.harness/INDEX.md` e apenas os módulos pertinentes. Para contrato e domínio, priorize `README.md`; para critérios, `INSTRUCOES.md`.
 2. Antes de qualquer alteração de ambiente, deploy, persistência, API ou feature flag, leia também `.harness/specs/06-architecture-ops.md` e `.harness/guardrails/quality-checklist.md`.
 3. Inspecione código, testes e configuração existentes antes de decidir. Não suponha arquivos, modelos, bibliotecas ou endpoints.
 3. Preserve alterações não relacionadas. Não sobrescreva `.env`, PDFs de exemplo, saídas geradas ou código fora do escopo.

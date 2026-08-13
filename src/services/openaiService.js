@@ -3,13 +3,15 @@ import fs from 'fs';
 import { config } from '../config/env.js';
 import { normalizePayrollResponse } from '../normalizers/payrollNormalizer.js';
 import { rasterizePdfPages } from '../utils/pdfExtractor.js';
-import { detectFichaFinanceira, segmentAllMonthBlocks } from '../utils/fichaFinanceiraSegmenter.js';
+import { detectFichaFinanceira, segmentAllMonthBlocks, extractBlockDataLocal, buildSpatialText } from '../utils/fichaFinanceiraSegmenter.js';
+import { segmentPagePayslips } from '../utils/payslipSegmenter.js';
 import { analyzePageDensity, selectExtractionStrategy } from '../utils/densityAnalyzer.js';
 import { PDFExtract } from 'pdf.js-extract';
 import { buildPayrollInventory, planPayrollPromptBatches, auditPayrollCoverage, reconcilePayrollExtractions } from '../utils/payrollInventory.js';
 import { extractPayrollLocal } from '../utils/localPayrollExtractor.js';
 import { recognizePayrollImage } from '../utils/localOcr.js';
 import { catalogHintsForLabels } from '../utils/payrollCatalog.js';
+import { assertPromptBatch, promptBatchLog } from '../utils/adaptivePromptPlanner.js';
 
 const pdfExtract = new PDFExtract();
 
@@ -280,6 +282,37 @@ export function inferCompetencyFromText(text) {
   return null;
 }
 
+function classifyStandardPayrollType(text = '') {
+  const normalized = String(text).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  if (/\bacerto\b|suplementar|complementar/.test(normalized)) return 'suplementar';
+  if (/folha de pagamento:\s*\|?\s*mes\b/.test(normalized)) return 'normal';
+  if (/participacao.*(?:lucro|resultado)|\bplr\b/.test(normalized)) return 'plr';
+  if (/folha de pagamento:[^\n]*(?:13|decimo)|\b13\s*(?:o\s+salario|salario)|decimo terceiro/.test(normalized.slice(0, 600))) return 'decimo_terceiro';
+  return 'normal';
+}
+
+export function buildStandardProcessingUnits(sourcePages = []) {
+  return sourcePages.flatMap(page => {
+    const regions = segmentPagePayslips(page.rawContent, page.pageInfo || { num: page.pageNum, height: 842 });
+    if (regions.length <= 1 || regions[0]?.isFallback) {
+      return [{ ...page, resultKey: `page:${page.pageNum}`, payrollType: classifyStandardPayrollType(page.text) }];
+    }
+    return regions.map(region => {
+      const text = buildSpatialText(region.items || []);
+      return {
+        ...page,
+        text,
+        rawContent: region.items || [],
+        density: analyzePageDensity(region.items || []),
+        blockIndex: region.index,
+        sourceRegion: `region:${region.index}`,
+        resultKey: `page:${page.pageNum}:region:${region.index}`,
+        payrollType: classifyStandardPayrollType(text)
+      };
+    });
+  });
+}
+
 export class OpenAIService {
   constructor(apiKey = config.openaiApiKey) {
     this.apiKey = apiKey;
@@ -347,6 +380,20 @@ export class OpenAIService {
     throw lastError;
   }
 
+  async executePayrollPrompt(messages, batch, options = {}) {
+    assertPromptBatch(batch, { maxTargets: config.payrollBatchSize, maxChars: config.payrollPromptMaxChars });
+    const startedAt = Date.now();
+    console.log(JSON.stringify(promptBatchLog(batch, { event: 'payroll_prompt_started', attempt: options.attempt || 1 })));
+    try {
+      const result = await this.generateCompletionWithFallback(messages, options.completionOptions || {});
+      console.log(JSON.stringify(promptBatchLog(batch, { event: 'payroll_prompt_completed', durationMs: Date.now() - startedAt, result: 'success' })));
+      return result;
+    } catch (error) {
+      console.warn(JSON.stringify(promptBatchLog(batch, { event: 'payroll_prompt_completed', durationMs: Date.now() - startedAt, result: 'error', errorCode: error.code || error.name || 'ERROR' })));
+      throw error;
+    }
+  }
+
   /**
    * Extrai o conteÃºdo preservando colunas espaciais separado por pÃ¡ginas
    */
@@ -389,6 +436,7 @@ export class OpenAIService {
         pageNum,
         text: textLines.join('\n'),
         rawContent: p.content || [],
+        pageInfo: p.pageInfo || null,
         density: analyzePageDensity(p.content || [])
       };
     });
@@ -422,7 +470,10 @@ export class OpenAIService {
       const bases = Array.isArray(parsed.bases) ? parsed.bases : [];
       return {
         page: pageObj.pageNum,
-        resultKey: `page:${pageObj.pageNum}`,
+        resultKey: pageObj.resultKey || `page:${pageObj.pageNum}`,
+        blockIndex: pageObj.blockIndex ?? null,
+        sourceRegion: pageObj.sourceRegion ?? null,
+        payrollType: pageObj.payrollType || 'normal',
         month: competency.month || parsed.month || '',
         year: competency.year || parsed.year || '',
         paymentDate: competency.paymentDate || parsed.paymentDate || null,
@@ -525,7 +576,10 @@ export class OpenAIService {
     const localCount = local.fields.length + local.bases.length + Object.values(local.totals).filter(Boolean).length;
     return {
       page: pageObj.pageNum,
-      resultKey: `page:${pageObj.pageNum}`,
+      resultKey: pageObj.resultKey || `page:${pageObj.pageNum}`,
+      blockIndex: pageObj.blockIndex ?? null,
+      sourceRegion: pageObj.sourceRegion ?? null,
+      payrollType: pageObj.payrollType || 'normal',
       month: competency.month || inferred.month || '', year: competency.year || inferred.year || '',
       paymentDate: competency.paymentDate || null,
       company: identity.company || null, employee: identity.employee || null, bankInfo: identity.bankInfo || null,
@@ -541,6 +595,114 @@ export class OpenAIService {
     };
   }
 
+  async runFichaBlock(block) {
+    const metadata = { sourcePage: block.pageNum, sourceRegion: block.blockIndex };
+    const spatial = extractBlockDataLocal(block.items || [], metadata);
+    let reconciled = spatial;
+    let validation = validateFichaExtraction(block.rawText, reconciled);
+    let executedPrompts = 0;
+    const inventory = buildPayrollInventory(block.rawText, { ...metadata, recordKey: block.recordKey });
+    const promptPlan = planPayrollPromptBatches(inventory, { maxCodesPerPrompt: config.payrollBatchSize, maxChars: config.payrollPromptMaxChars });
+
+    // A geometria é a fonte primária. A IA recebe somente blocos com lacunas
+    // objetivamente demonstradas pela auditoria e não pode sobrescrevê-la.
+    if (!validation.valid && inventory.expectedCodes.length <= config.payrollBatchSize && block.rawText.length <= config.payrollPromptMaxChars) {
+      executedPrompts++;
+      const completionJson = await this.generateCompletionWithFallback([
+        { role: 'system', content: PROMPT_FICHA_FINANCEIRA_BLOCK },
+        {
+          role: 'user',
+          content: `COMPETÊNCIA: ${block.month}/${block.year}\nTIPO: ${block.payrollType}\nLACUNAS: ${JSON.stringify(validation)}\nRESULTADO ESPACIAL (preservar): ${JSON.stringify(spatial)}\n\nEVIDÊNCIA:\n${block.rawText}`
+        }
+      ]);
+      let recovery = {};
+      try { recovery = JSON.parse(completionJson); } catch { recovery = {}; }
+      reconciled = reconcilePayrollExtractions(spatial, recovery, {
+        sourcePage: block.pageNum,
+        sourceRegion: block.blockIndex,
+        evidenceType: 'ai_recovery'
+      });
+      validation = validateFichaExtraction(block.rawText, reconciled);
+    }
+
+    const warnings = [...validation.warnings];
+    const deterministicItems = spatial.fields.length + spatial.bases.length + Object.values(spatial.totals).filter(value => value !== null && value !== undefined && value !== '').length;
+    const finalItems = (reconciled.fields?.length || 0) + (reconciled.bases?.length || 0) + Object.values(reconciled.totals || {}).filter(value => value !== null && value !== undefined && value !== '').length;
+    const visibleItems = Math.max(validation.expectedCount || 0, deterministicItems);
+    const aiRecoveredItems = Math.max(0, finalItems - deterministicItems);
+    const pendingItems = Math.max(0, visibleItems - Math.min(visibleItems, finalItems));
+    const totalValues = Object.values(reconciled.totals || {}).filter(value => value !== null && value !== undefined && value !== '');
+    if (totalValues.length === 3 && !hasConsistentPayrollTotals(reconciled.totals)) {
+      warnings.push('Total de proventos menos descontos não corresponde ao valor líquido.');
+    }
+
+    return {
+      page: block.pageNum,
+      blockIndex: block.blockIndex,
+      recordKey: block.recordKey,
+      resultKey: block.recordKey,
+      sourcePages: block.continuesOnPages || [block.pageNum],
+      month: block.month,
+      year: block.year,
+      payrollType: block.payrollType,
+      fields: reconciled.fields || [],
+      bases: reconciled.bases || [],
+      totals: reconciled.totals || {},
+      reviewRequired: warnings.length > 0 || (reconciled.conflicts || []).length > 0,
+      extraction: {
+        ...validation,
+        valid: validation.valid && warnings.length === 0,
+        warnings,
+        strategy: executedPrompts ? 'SPATIAL_TEXT_WITH_AI_RECOVERY' : 'SPATIAL_TEXT',
+        visibleItems,
+        deterministicItems,
+        aiRecoveredItems,
+        pendingItems,
+        coverage: visibleItems ? (visibleItems - pendingItems) / visibleItems : 1,
+        plannedBatches: promptPlan.fieldBatches.length + promptPlan.lineBatches.length + promptPlan.summaryPasses,
+        plannedPrompts: promptPlan.fieldBatches.length + promptPlan.lineBatches.length + promptPlan.summaryPasses,
+        executedPrompts,
+        localItems: deterministicItems,
+        aiItems: aiRecoveredItems,
+        conflicts: reconciled.conflicts || [],
+        sources: [...new Set([...(reconciled.fields || []), ...(reconciled.bases || [])].map(item => item.evidenceType).filter(Boolean))]
+      }
+    };
+  }
+
+  async parsePayrollMock(filePath, options = {}) {
+    const onProgress = options.onProgress || (() => {});
+    const onPageCompleted = options.onPageCompleted || (() => {});
+    const document = await new Promise((resolve, reject) => {
+      pdfExtract.extract(filePath, {}, (error, result) => error ? reject(error) : resolve(result));
+    });
+    const isFicha = detectFichaFinanceira(document.pages);
+    const rawPages = isFicha
+      ? segmentAllMonthBlocks(document.pages).map(block => ({
+          page: block.pageNum,
+          blockIndex: block.blockIndex,
+          recordKey: block.recordKey,
+          resultKey: block.recordKey,
+          month: block.month,
+          year: block.year,
+          payrollType: block.payrollType,
+          ...extractBlockDataLocal(block.items, { sourcePage: block.pageNum, sourceRegion: block.blockIndex })
+        }))
+      : (await this.extractPdfTextPages(filePath)).map(page => ({
+          page: page.pageNum,
+          resultKey: `page:${page.pageNum}`,
+          payrollType: classifyStandardPayrollType(page.text),
+          ...extractPayrollLocal(page.text, { sourcePage: page.pageNum, evidenceType: 'text' })
+        }));
+
+    onProgress({ current: 0, total: rawPages.length, percentage: 10, message: 'Executando extração determinística de smoke test.' });
+    for (let index = 0; index < rawPages.length; index++) {
+      await onPageCompleted(rawPages[index]);
+      onProgress({ current: index + 1, total: rawPages.length, percentage: Math.min(95, Math.round(10 + ((index + 1) / rawPages.length) * 85)), message: `Registro ${index + 1} de ${rawPages.length} concluído.` });
+    }
+    return normalizePayrollResponse({ pages: [...(options.completedResults || []), ...rawPages] });
+  }
+
   /**
    * Envia o PDF de Holerite (Payroll) para a API da OpenAI e retorna o DTO normalizado.
    * Processa pÃ¡gina por pÃ¡gina para garantir 100% de cobertura sem omissÃ£o de verbas.
@@ -551,6 +713,11 @@ export class OpenAIService {
     try {
       if (!fs.existsSync(filePath)) {
         throw new Error(`Arquivo nÃ£o encontrado: ${filePath}`);
+      }
+
+      if (options.useMock) {
+        if (config.isProduction) throw new Error('OPENAI_MOCK_FORBIDDEN_IN_PRODUCTION: o modo mock é exclusivo de validações locais.');
+        return this.parsePayrollMock(filePath, options);
       }
 
       if (!this.isReady()) {
@@ -589,8 +756,8 @@ export class OpenAIService {
               try {
                 console.log(`ðŸ” [OpenAI] Extraindo bloco ${bIdx + 1}/${blocks.length}: CompetÃªncia ${block.month}/${block.year} (PÃ¡g ${block.pageNum})...`);
 
-                const hybrid = await this.runHybridPageAgents({ pageNum: block.pageNum, text: block.rawText, rawContent: block.items || [] });
-                const hybridBlockResult = { ...hybrid, blockIndex: block.blockIndex, resultKey: block.resultKey, month: block.month, year: block.year, extractionValidation: hybrid.extraction };
+                const hybrid = await this.runFichaBlock(block);
+                const hybridBlockResult = { ...hybrid, extractionValidation: hybrid.extraction };
                 await onPageCompleted(hybridBlockResult);
                 completedBlocks++;
                 const hybridPct = Math.min(95, Math.round(10 + (completedBlocks / blocks.length) * 85));
@@ -686,7 +853,9 @@ export class OpenAIService {
 
           // Caso padrÃ£o (Holerite comum por pÃ¡gina)
           const completedResultKeys = new Set(options.completedResultKeys || []);
-          const pdfPages = (await this.extractPdfTextPages(filePath)).filter(page => !completedResultKeys.has(`page:${page.pageNum}`));
+          const sourcePages = await this.extractPdfTextPages(filePath);
+          const pdfPages = buildStandardProcessingUnits(sourcePages)
+            .filter(page => !completedResultKeys.has(page.resultKey) && !completedResultKeys.has(`page:${page.pageNum}`));
           const totalPages = pdfPages.length;
           const scannedPageNumbers = pdfPages
             .filter(page => selectExtractionStrategy(page.density, false) === 'VISION_SINGLE_PASS')

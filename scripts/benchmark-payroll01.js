@@ -144,7 +144,8 @@ export function runBenchmark(aiExtractionDTO, gtBlocks) {
   const aiPagesMap = new Map();
   (aiExtractionDTO?.pages || []).forEach(p => {
     const monthKey = `${String(p.month || '').padStart(2, '0')}/${p.year || ''}`;
-    aiPagesMap.set(monthKey, p);
+    const current = aiPagesMap.get(monthKey);
+    if (!current || (p.payrollType === 'normal' && current.payrollType !== 'normal')) aiPagesMap.set(monthKey, p);
   });
 
   const monthReports = [];
@@ -378,7 +379,9 @@ async function main() {
   console.log('===============================================================\n');
 
   const gtPath = path.resolve('tests/fixtures/payroll-01-audit.txt');
-  const pdfPath = path.resolve(config.dataInputDir, 'holerite-1.pdf');
+  const configuredPdfPath = path.resolve(config.dataInputDir, 'holerite-1.pdf');
+  const fixturePdfPath = path.resolve('exemplos', 'holerite-1.pdf');
+  const pdfPath = fs.existsSync(configuredPdfPath) ? configuredPdfPath : fixturePdfPath;
 
   console.log(`📂 Carregando Ground Truth Auditado de:`);
   console.log(`   ${gtPath}`);

@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import path from 'path';
 import { PDFExtract } from 'pdf.js-extract';
 import { segmentPagePayslips } from '../src/utils/payslipSegmenter.js';
+import { buildSpatialText } from '../src/utils/fichaFinanceiraSegmenter.js';
+import { buildStandardProcessingUnits } from '../src/services/openaiService.js';
 
 const pdfExtract = new PDFExtract();
 const fixturesDir = path.resolve('exemplos');
@@ -40,6 +42,20 @@ test('Segmentador de Holerites - Detecção de 2 holerites com alturas diferente
   assert.equal(regions.length, 2, 'Página 1 do payroll-02.pdf deve ser segmentada em exatamente 2 regiões de holerites (MÊS e ACERTO)');
   assert.ok(regions[0].yEnd - regions[0].yStart > 100, 'Holerite 1 deve ter altura válida');
   assert.ok(regions[1].yEnd - regions[1].yStart > 100, 'Holerite 2 deve ter altura válida');
+});
+
+test('pipeline padrão processa MÊS e ACERTO como eventos separados', async () => {
+  const data = await pdfExtract.extract(path.resolve(fixturesDir, 'holerite-2.pdf'), {});
+  const page = data.pages[0];
+  const units = buildStandardProcessingUnits([{
+    pageNum: 1,
+    text: buildSpatialText(page.content),
+    rawContent: page.content,
+    pageInfo: page.pageInfo
+  }]);
+  assert.equal(units.length, 2);
+  assert.deepEqual(units.map(unit => unit.resultKey), ['page:1:region:0', 'page:1:region:1']);
+  assert.deepEqual(units.map(unit => unit.payrollType), ['normal', 'suplementar']);
 });
 
 test('Segmentador de Holerites - Detecção de 1 holerite único em payroll-03.pdf', async () => {

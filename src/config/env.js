@@ -30,7 +30,8 @@ export const config = {
   openaiConcurrency: Math.max(1, Number(process.env.OPENAI_CONCURRENCY || 3)),
   openaiPageConcurrency: Math.max(1, Number(process.env.OPENAI_PAGE_CONCURRENCY || 2)),
   openaiTimeoutMs: Math.max(5_000, Number(process.env.OPENAI_TIMEOUT_MS || 40_000)),
-  payrollBatchSize: Math.max(1, Number(process.env.PAYROLL_BATCH_SIZE || 6)),
+  payrollBatchSize: Math.min(6, Math.max(1, Number(process.env.PAYROLL_BATCH_SIZE || 6))),
+  payrollPromptMaxChars: Math.max(500, Number(process.env.PAYROLL_PROMPT_MAX_CHARS || 6000)),
   ocrMinimumConfidence: Number(process.env.OCR_MINIMUM_CONFIDENCE || 0.72),
   dataInputDir: process.env.DATA_INPUT_DIR 
     ? path.resolve(process.env.DATA_INPUT_DIR)

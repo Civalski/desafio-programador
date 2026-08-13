@@ -60,3 +60,9 @@ test('caso de uso retoma job e mantém o contrato de exportação', async () => 
   assert.equal(resumed.job.status, 'concluido');
   assert.equal(exported.content, 'csv');
 });
+
+test('caso de uso rejeita extensão diferente de PDF antes de criar o job', async () => {
+  const { useCases, repository } = makeUseCases();
+  await assert.rejects(() => useCases.create({ type: 'holerite', file: { name: 'folha.txt', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-test') } }), /PDF válido/);
+  assert.equal((await repository.listJobs()).length, 0);
+});

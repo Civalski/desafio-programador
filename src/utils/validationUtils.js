@@ -112,6 +112,8 @@ export function auditGlobalPayroll(dto = {}) {
   const missingEvidence = [];
   const inferredCompetencies = [];
   const warnings = [];
+  const eventCounts = new Map();
+  const competencyTypes = new Map();
 
   const yearsFound = new Set();
 
@@ -163,6 +165,12 @@ export function auditGlobalPayroll(dto = {}) {
         identifiedCompetencies.push(formattedComp);
       }
       competenciesCount[formattedComp] = (competenciesCount[formattedComp] || 0) + 1;
+      const payrollType = page.payrollType || 'normal';
+      const eventKey = `${formattedComp}|${payrollType}`;
+      if (!eventCounts.has(eventKey)) eventCounts.set(eventKey, []);
+      eventCounts.get(eventKey).push(page.recordKey || `${pageNum}:${page.blockIndex ?? 'page'}`);
+      if (!competencyTypes.has(formattedComp)) competencyTypes.set(formattedComp, new Set());
+      competencyTypes.get(formattedComp).add(payrollType);
     }
   });
 
@@ -175,6 +183,24 @@ export function auditGlobalPayroll(dto = {}) {
   });
 
   // 4. Inconsistências de Ano entre Páginas
+  const legitimateRepeatedCompetencies = [...competencyTypes.entries()]
+    .filter(([, types]) => types.size > 1)
+    .map(([competency, types]) => ({ competency, payrollTypes: [...types] }));
+  for (const legitimate of legitimateRepeatedCompetencies) {
+    const index = duplicates.indexOf(legitimate.competency);
+    if (index >= 0) duplicates.splice(index, 1);
+    for (let warningIndex = warnings.length - 1; warningIndex >= 0; warningIndex--) {
+      if (warnings[warningIndex].includes(legitimate.competency) && warnings[warningIndex].includes('duplicada')) warnings.splice(warningIndex, 1);
+    }
+  }
+  for (const [eventKey, recordKeys] of eventCounts) {
+    if (recordKeys.length <= 1) continue;
+    const [competency, payrollType] = eventKey.split('|');
+    if (!duplicates.some(item => typeof item === 'object' && item.competency === competency && item.payrollType === payrollType)) {
+      duplicates.push({ competency, payrollType, recordKeys });
+    }
+  }
+
   if (yearsFound.size > 2) {
     const yearList = Array.from(yearsFound).sort((a, b) => a - b);
     yearInconsistencies.push({
@@ -192,6 +218,7 @@ export function auditGlobalPayroll(dto = {}) {
     status,
     competencies: identifiedCompetencies,
     duplicates,
+    legitimateRepeatedCompetencies,
     invalidFormats,
     yearInconsistencies,
     missingEvidence,

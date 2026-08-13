@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { isNonSequentialCompetency } from '../../utils/validationUtils.js';
+import { buildCanonicalColumnRegistry, canonicalizePayrollItem, payrollTypeLabel, selectCanonicalItem } from '../../utils/payrollCanonical.js';
 
 export function EditableTable({ data, onChangeData }) {
   const [viewMode, setViewMode] = useState('grid'); // 'grid' (Excel Planilha Grid) ou 'list' (Lista Detalhada)
@@ -20,49 +21,29 @@ export function EditableTable({ data, onChangeData }) {
   const pages = data.pages || [];
 
     // Mapear todas as verbas (fields) e bases únicas entre as páginas
-    const verbaKeys = [];
-    const baseKeys = [];
-
-    pages.forEach((page) => {
-      (page.fields || []).forEach((item) => {
-        const label = (item.label || item.description || '').trim();
-        if (label && !verbaKeys.includes(label)) {
-          verbaKeys.push(label);
-        }
-      });
-      (page.bases || []).forEach((base) => {
-        const label = (base.label || base.description || '').trim();
-        if (label && !baseKeys.includes(label)) {
-          baseKeys.push(label);
-        }
-      });
-    });
+    const { fields: verbaColumns, bases: baseColumns } = buildCanonicalColumnRegistry(pages);
 
     // Atualizador no modo Grid
-    const handleGridCellChange = (pageIdx, keyType, labelKey, val) => {
+    const handleGridCellChange = (pageIdx, keyType, column, val) => {
       const updatedPages = [...pages];
       const targetPage = { ...updatedPages[pageIdx] };
 
       if (keyType === 'field') {
         const fields = [...(targetPage.fields || [])];
-        const fieldIdx = fields.findIndex(
-          (f) => (f.label || f.description || '').trim() === labelKey
-        );
+        const fieldIdx = fields.findIndex((f) => canonicalizePayrollItem(f, 'field').canonicalKey === column.key);
         if (fieldIdx >= 0) {
           fields[fieldIdx] = { ...fields[fieldIdx], value: val };
         } else {
-          fields.push({ label: labelKey, value: val });
+          fields.push({ code: column.code || '', label: column.label, originalLabel: column.label, canonicalKey: column.key, value: val });
         }
         targetPage.fields = fields;
       } else if (keyType === 'base') {
         const bases = [...(targetPage.bases || [])];
-        const baseIdx = bases.findIndex(
-          (b) => (b.label || b.description || '').trim() === labelKey
-        );
+        const baseIdx = bases.findIndex((b) => canonicalizePayrollItem(b, 'base').canonicalKey === column.key);
         if (baseIdx >= 0) {
           bases[baseIdx] = { ...bases[baseIdx], value: val };
         } else {
-          bases.push({ label: labelKey, value: val });
+          bases.push({ label: column.label, originalLabel: column.label, canonicalKey: column.key, value: val });
         }
         targetPage.bases = bases;
       } else if (keyType === 'competencia') {
@@ -84,8 +65,15 @@ export function EditableTable({ data, onChangeData }) {
       const updatedPages = [...pages];
       const targetPage = { ...updatedPages[pageIdx] };
       const fields = [...(targetPage.fields || [])];
-      fields[fieldIdx] = { ...fields[fieldIdx], [prop]: val };
+      const updatedField = { ...fields[fieldIdx], [prop]: val };
+      if (prop === 'label') {
+        delete updatedField.canonicalKey;
+        updatedField.originalLabel = val;
+        updatedField.reviewRequired = false;
+        fields[fieldIdx] = canonicalizePayrollItem(updatedField, 'field');
+      } else fields[fieldIdx] = updatedField;
       targetPage.fields = fields;
+      targetPage.reviewRequired = [...fields, ...(targetPage.bases || [])].some(item => item.reviewRequired || item.conflict || !item.canonicalKey);
       updatedPages[pageIdx] = targetPage;
       onChangeData({ ...data, pages: updatedPages });
     };
@@ -94,8 +82,15 @@ export function EditableTable({ data, onChangeData }) {
       const updatedPages = [...pages];
       const targetPage = { ...updatedPages[pageIdx] };
       const bases = [...(targetPage.bases || [])];
-      bases[baseIdx] = { ...bases[baseIdx], [prop]: val };
+      const updatedBase = { ...bases[baseIdx], [prop]: val };
+      if (prop === 'label') {
+        delete updatedBase.canonicalKey;
+        updatedBase.originalLabel = val;
+        updatedBase.reviewRequired = false;
+        bases[baseIdx] = canonicalizePayrollItem(updatedBase, 'base');
+      } else bases[baseIdx] = updatedBase;
       targetPage.bases = bases;
+      targetPage.reviewRequired = [...(targetPage.fields || []), ...bases].some(item => item.reviewRequired || item.conflict || !item.canonicalKey);
       updatedPages[pageIdx] = targetPage;
       onChangeData({ ...data, pages: updatedPages });
     };
@@ -132,13 +127,13 @@ export function EditableTable({ data, onChangeData }) {
           </div>
         </div>
 
-        {data.audit?.status === 'review_required' && (
+        {data.audit?.extractionMetrics && (
           <div className="audit-warning" role="alert" style={{ margin: '0 1rem 1rem', padding: '0.75rem 1rem', borderRadius: '8px', background: '#fff3cd', color: '#664d03', fontSize: '0.8rem' }}>
-            <strong>Revisão de cobertura necessária.</strong>{' '}
-            {(data.audit.warnings || []).slice(0, 3).join(' ')}
-            {(data.audit.warnings || []).length > 3 ? ` (+${data.audit.warnings.length - 3} alertas)` : ''}
+            <strong>{data.audit.status === 'review_required' ? 'Revisão de cobertura necessária.' : 'Extração concluída.'}</strong>{' '}
+            {data.audit.status === 'review_required' && (data.audit.warnings || []).slice(0, 3).join(' ')}
+            {data.audit.status === 'review_required' && (data.audit.warnings || []).length > 3 ? ` (+${data.audit.warnings.length - 3} alertas)` : ''}
             {data.audit.extractionMetrics && (
-              <span> Cobertura: {data.audit.extractionMetrics.extractedItems}/{data.audit.extractionMetrics.expectedItems} itens; {data.audit.extractionMetrics.executedPrompts} prompts executados.</span>
+              <span> Cobertura: {data.audit.extractionMetrics.extractedItems}/{data.audit.extractionMetrics.visibleItems ?? data.audit.extractionMetrics.expectedItems} itens ({Math.round((data.audit.extractionMetrics.coverage ?? 0) * 100)}%); {data.audit.extractionMetrics.deterministicItems ?? 0} determinÃ­sticos; {data.audit.extractionMetrics.aiRecoveredItems ?? 0} por IA; {data.audit.extractionMetrics.pendingItems ?? 0} pendentes; {data.audit.extractionMetrics.executedPrompts === 0 ? 'IA nÃ£o necessÃ¡ria' : `${data.audit.extractionMetrics.executedPrompts} prompts executados`}.</span>
             )}
           </div>
         )}
@@ -148,7 +143,7 @@ export function EditableTable({ data, onChangeData }) {
             <div className="excel-grid-wrapper">
               <div style={{ marginBottom: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: '0.8rem', color: 'var(--text-subtle)', fontWeight: 500 }}>
-                  Exibindo {pages.length} registro(s) em {verbaKeys.length + baseKeys.length} colunas
+                  Exibindo {pages.length} registro(s) em {verbaColumns.length + baseColumns.length} colunas canônicas
                 </span>
               </div>
 
@@ -158,19 +153,20 @@ export function EditableTable({ data, onChangeData }) {
                     <tr>
                       <th style={{ width: '60px', minWidth: '60px', textAlign: 'center' }}>Pág.</th>
                       <th style={{ width: '120px', minWidth: '110px' }}>Competência</th>
-                      {verbaKeys.map((key, i) => (
+                      <th style={{ minWidth: '130px' }}>Tipo da folha</th>
+                      {verbaColumns.map((column, i) => (
                         <th key={`vk-${i}`} style={{ minWidth: '150px' }}>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                             <span className="header-badge verba">Verba</span>
-                            <span title={key}>{key}</span>
+                            <span title={column.label}>{column.code ? `${column.code} - ` : ''}{column.label}</span>
                           </div>
                         </th>
                       ))}
-                      {baseKeys.map((key, i) => (
+                      {baseColumns.map((column, i) => (
                         <th key={`bk-${i}`} style={{ minWidth: '150px' }}>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                             <span className="header-badge base">Base / Total</span>
-                            <span title={key}>{key}</span>
+                            <span title={column.label}>{column.label}</span>
                           </div>
                         </th>
                       ))}
@@ -180,19 +176,8 @@ export function EditableTable({ data, onChangeData }) {
                     {pages.map((p, pIdx) => {
                       const comp = p.month && p.year ? `${p.month}/${p.year}` : (p.month || '');
 
-                      const fieldMap = {};
-                      (p.fields || []).forEach((f) => {
-                        const lbl = (f.label || f.description || '').trim();
-                        if (lbl) fieldMap[lbl] = f;
-                      });
-
-                      const baseMap = {};
-                      (p.bases || []).forEach((b) => {
-                        const lbl = (b.label || b.description || '').trim();
-                        if (lbl) baseMap[lbl] = b;
-                      });
-
                       const hasUncertainty =
+                        p.reviewRequired ||
                         (p.fields || []).some((f) => f.conflict || f.value?.includes('?') || f.label?.includes('?')) ||
                         (p.bases || []).some((b) => b.conflict || b.value?.includes('?') || b.label?.includes('?'));
                       const prior = pages.slice(0, pIdx).reverse().find(candidate => candidate.month && candidate.year);
@@ -213,8 +198,10 @@ export function EditableTable({ data, onChangeData }) {
                             />
                           </td>
 
-                          {verbaKeys.map((key, vIdx) => {
-                            const fieldItem = fieldMap[key];
+                          <td>{payrollTypeLabel(p.payrollType)}</td>
+
+                          {verbaColumns.map((column, vIdx) => {
+                            const fieldItem = selectCanonicalItem(p.fields || [], column.key, 'field');
                             const val = fieldItem?.value || '';
                             const isUncertain = Boolean(fieldItem?.conflict) || val.includes('?');
 
@@ -223,15 +210,15 @@ export function EditableTable({ data, onChangeData }) {
                                 <input
                                   className="input-cell"
                                   value={val}
-                                  onChange={(e) => handleGridCellChange(pIdx, 'field', key, e.target.value)}
+                                  onChange={(e) => handleGridCellChange(pIdx, 'field', column, e.target.value)}
                                   placeholder="-"
                                 />
                               </td>
                             );
                           })}
 
-                          {baseKeys.map((key, bIdx) => {
-                            const baseItem = baseMap[key];
+                          {baseColumns.map((column, bIdx) => {
+                            const baseItem = selectCanonicalItem(p.bases || [], column.key, 'base');
                             const val = baseItem?.value || '';
                             const isUncertain = Boolean(baseItem?.conflict) || val.includes('?');
 
@@ -240,8 +227,8 @@ export function EditableTable({ data, onChangeData }) {
                                 <input
                                   className="input-cell"
                                   value={val}
-                                  onChange={(e) => handleGridCellChange(pIdx, 'base', key, e.target.value)}
-                                  style={{ fontWeight: key.toLowerCase().includes('líquido') ? 600 : 400 }}
+                                  onChange={(e) => handleGridCellChange(pIdx, 'base', column, e.target.value)}
+                                  style={{ fontWeight: column.label.toLowerCase().includes('líquido') ? 600 : 400 }}
                                   placeholder="-"
                                 />
                               </td>
@@ -264,7 +251,7 @@ export function EditableTable({ data, onChangeData }) {
                   <div key={`page-list-${pIdx}`} style={{ marginBottom: pages.length > 1 ? '2rem' : 0 }}>
                     {pages.length > 1 && (
                       <div style={{ padding: '0.5rem 0', fontWeight: 600, color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                        Página {page.page || pIdx + 1} — Competência: {page.month || 'MM'}/{page.year || 'YYYY'}
+                        Página {page.page || pIdx + 1} — Competência: {page.month || 'MM'}/{page.year || 'YYYY'} — {payrollTypeLabel(page.payrollType)}
                       </div>
                     )}
                     <h4 style={{ marginBottom: '0.75rem', color: 'var(--text-main)', fontSize: '0.85rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
@@ -297,6 +284,9 @@ export function EditableTable({ data, onChangeData }) {
                                   value={item.label || ''} 
                                   onChange={(e) => handleListFieldChange(pIdx, idx, 'label', e.target.value)}
                                 />
+                                {item.originalLabel && item.originalLabel !== item.label && (
+                                  <small style={{ color: 'var(--text-subtle)' }}>Original: {item.originalLabel}</small>
+                                )}
                               </td>
                               <td>
                                 <input 
@@ -338,6 +328,9 @@ export function EditableTable({ data, onChangeData }) {
                                 onChange={(e) => handleListBaseChange(pIdx, idx, 'label', e.target.value)}
                                 style={{ fontWeight: base.label?.toLowerCase().includes('líquido') ? 600 : 400 }}
                               />
+                              {base.originalLabel && base.originalLabel !== base.label && (
+                                <small style={{ color: 'var(--text-subtle)' }}>Original: {base.originalLabel}</small>
+                              )}
                             </td>
                             <td>
                               <input 

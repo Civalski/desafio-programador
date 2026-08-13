@@ -1,6 +1,6 @@
 import ExcelJS from 'exceljs';
 import { isNonSequentialCompetency } from './validationUtils.js';
-import { normalizeLabelKey } from './labelNormalizer.js';
+import { buildCanonicalColumnRegistry, payrollTypeLabel, selectCanonicalItem } from './payrollCanonical.js';
 
 const HEADER = '173772';
 const WARNING = 'FFF3CD';
@@ -9,27 +9,17 @@ const DANGER_BORDER = 'DC3545';
 const csv = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
 
 function payrollRows(pages) {
-  const columns = new Map();
-  const itemKey = (kind, item, property = 'value') => `${kind}:${normalizeLabelKey(item.label || item.description || '')}:${Number(item.occurrence || 1)}:${property}`;
-  const displayLabel = (item, suffix = '') => {
-    const label = String(item.label || item.description || '').trim();
-    const occurrence = Number(item.occurrence || 1);
-    const origin = occurrence > 1 ? ` — ocorrência ${occurrence}${item.sourcePage ? `/pág. ${item.sourcePage}` : ''}` : '';
-    return `${label}${suffix}${origin}`;
-  };
-  pages.forEach(page => {
-    (page.fields || []).forEach(field => {
-      if (!field.label) return;
-      columns.set(itemKey('field', field), displayLabel(field));
-      columns.set(itemKey('field', field, 'reference'), displayLabel(field, ' — Referência'));
-    });
-    (page.bases || []).forEach(base => {
-      if (base.label) columns.set(itemKey('base', base), displayLabel(base));
-    });
-  });
+  const registry = buildCanonicalColumnRegistry(pages);
+  const columns = [
+    ...registry.fields.flatMap(column => [
+      { ...column, property: 'value', header: column.label },
+      { ...column, property: 'reference', header: `${column.label} — Referência` }
+    ]),
+    ...registry.bases.map(column => ({ ...column, property: 'value', header: column.label }))
+  ];
   const headers = [
-    'Pág.', 'Mês', 'Ano', 'Empresa', 'CNPJ', 'Funcionário', 'CPF', 'Matrícula',
-    'Cargo', 'Departamento', 'Admissão', 'Banco', 'Agência', 'Conta', ...columns.values()
+    'Pág.', 'Bloco', 'Mês', 'Ano', 'Tipo da folha', 'Revisão', 'Observações', 'Empresa', 'CNPJ', 'Funcionário', 'CPF', 'Matrícula',
+    'Cargo', 'Departamento', 'Admissão', 'Banco', 'Agência', 'Conta', ...columns.map(column => column.header)
   ];
   let priorReadable = null;
   const rows = pages.map((page, index) => {
@@ -37,22 +27,27 @@ function payrollRows(pages) {
     const danger = readable && priorReadable && isNonSequentialCompetency(priorReadable, page);
     if (readable) priorReadable = page;
     const valuesByColumn = new Map();
-    (page.fields || []).forEach(field => {
-      valuesByColumn.set(itemKey('field', field), field.value || '');
-      valuesByColumn.set(itemKey('field', field, 'reference'), field.reference || '');
+    columns.forEach(column => {
+      const item = selectCanonicalItem(column.kind === 'field' ? page.fields : page.bases, column.key, column.kind);
+      valuesByColumn.set(`${column.key}:${column.property}`, item?.[column.property] || '');
     });
-    (page.bases || []).forEach(base => valuesByColumn.set(itemKey('base', base), base.value || ''));
+    const unresolvedItems = [...(page.fields || []), ...(page.bases || [])].filter(item => item.reviewRequired || item.conflict || !item.canonicalKey);
+    const unresolved = page.reviewRequired || unresolvedItems.length > 0;
+    const observations = [
+      ...(page.extraction?.warnings || []),
+      ...unresolvedItems.map(item => `Revisar: ${item.originalLabel || item.label || item.code || 'item sem identificação'}`)
+    ].join(' | ');
     const values = [
-      page.page || index + 1, page.month || '', page.year || '',
+      page.page || index + 1, page.blockIndex ?? '', page.month || '', page.year || '', payrollTypeLabel(page.payrollType), unresolved ? 'Revisão necessária' : '', observations,
       page.company?.name || '', page.company?.cnpj || '',
       page.employee?.name || '', page.employee?.cpf || '', page.employee?.registration || '',
       page.employee?.role || '', page.employee?.department || '', page.employee?.admissionDate || '',
       page.bankInfo?.bank || '', page.bankInfo?.agency || '', page.bankInfo?.account || '',
-      ...Array.from(columns.keys()).map(key => valuesByColumn.get(key) || '')
+      ...columns.map(column => valuesByColumn.get(`${column.key}:${column.property}`) || '')
     ];
     const empty = !(page.fields || []).length && !(page.bases || []).length && !page.month && !page.year;
     const incomplete = page.extraction && page.extraction.valid === false;
-    return { values, warning: !danger && (empty || incomplete || values.some(v => String(v).includes('?'))), danger };
+    return { values, warning: !danger && (empty || incomplete || unresolved || values.some(v => String(v).includes('?'))), danger };
   });
   return { headers, rows };
 }
