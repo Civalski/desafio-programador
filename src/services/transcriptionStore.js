@@ -23,7 +23,7 @@ function purgeExpired() {
 if (!remoteUrl) {
   fs.mkdirSync(dataDir, { recursive: true });
   db = new DatabaseSync(path.join(dataDir, 'quick-filler.db'));
-  db.exec(`CREATE TABLE IF NOT EXISTS transcription_jobs (id TEXT PRIMARY KEY,tipo TEXT NOT NULL,status TEXT NOT NULL,progress_json TEXT NOT NULL,erro TEXT,value_json TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS transcription_pages (job_id TEXT NOT NULL,page_number INTEGER NOT NULL,value_json TEXT NOT NULL,completed_at TEXT NOT NULL,PRIMARY KEY(job_id,page_number));`);
+  db.exec(`CREATE TABLE IF NOT EXISTS transcription_jobs (id TEXT PRIMARY KEY,tipo TEXT NOT NULL,status TEXT NOT NULL,progress_json TEXT NOT NULL,erro TEXT,value_json TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS transcription_pages (job_id TEXT NOT NULL,page_number INTEGER NOT NULL,value_json TEXT NOT NULL,completed_at TEXT NOT NULL,PRIMARY KEY(job_id,page_number)); CREATE TABLE IF NOT EXISTS transcription_results (job_id TEXT NOT NULL,result_key TEXT NOT NULL,page_number INTEGER NOT NULL,result_kind TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 1,value_json TEXT NOT NULL,completed_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(job_id,result_key));`);
   purgeExpired();
   for (const statement of [
     'ALTER TABLE transcription_jobs ADD COLUMN file_name TEXT',
@@ -68,7 +68,8 @@ export class TranscriptionStore {
     }
     const job = hydrate(db.prepare('SELECT * FROM transcription_jobs WHERE id=?').get(id));
     if (job?.status === 'concluido' && !job.value) {
-      const pages = db.prepare('SELECT value_json FROM transcription_pages WHERE job_id=? ORDER BY page_number').all(id).map(row => JSON.parse(row.value_json));
+      let pages = db.prepare("SELECT value_json FROM transcription_results WHERE job_id=? AND result_kind='final' ORDER BY page_number,result_key").all(id).map(row => JSON.parse(row.value_json));
+      if (!pages.length) pages = db.prepare('SELECT value_json FROM transcription_pages WHERE job_id=? ORDER BY page_number').all(id).map(row => JSON.parse(row.value_json));
       job.value = { pages, audit: job.audit || null };
     }
     if (job) this.jobs.set(id, job);
@@ -76,16 +77,21 @@ export class TranscriptionStore {
   }
   async persist(job) { job.updatedAt = new Date().toISOString(); if (remoteUrl) await remote('save', { job }); else db.prepare('UPDATE transcription_jobs SET status=?,progress_json=?,erro=?,value_json=?,updated_at=?,retry_count=?,last_error=?,audit_json=? WHERE id=?').run(job.status,JSON.stringify(job.progress),job.erro,job.value ? JSON.stringify(job.value) : null,job.updatedAt,job.retryCount || 0,job.lastError || null,job.audit ? JSON.stringify(job.audit) : null,job.id); this.jobs.set(job.id, job); return job; }
   async updateJobProgress(id, update) { const job = await this.getJob(id); if (!job) return null; const logs = [...(job.progress.logs || [])]; if (update.log) logs.push(`[${new Date().toLocaleTimeString('pt-BR')}] ${update.log}`); job.progress = { current: update.current ?? job.progress.current, total: update.total ?? job.progress.total, percentage: update.percentage ?? job.progress.percentage, message: update.message || job.progress.message, logs: logs.slice(-100) }; return this.persist(job); }
-  async savePageResult(id, pageNumber, value) { if (remoteUrl) { await remote('page', { id, pageNumber, value }); return value; } db.prepare(`INSERT INTO transcription_pages VALUES (?,?,?,?) ON CONFLICT(job_id,page_number) DO UPDATE SET value_json=excluded.value_json,completed_at=excluded.completed_at`).run(id,pageNumber,JSON.stringify(value),new Date().toISOString()); return value; }
-  async getCompletedPageNumbers(id) { if (remoteUrl) { const { pages } = await remote('completed_pages', { id }); return pages || []; } return db.prepare('SELECT page_number FROM transcription_pages WHERE job_id=?').all(id).map(row => row.page_number); }
+  async saveResult(id, resultKey, value, resultKind = 'checkpoint') { const pageNumber = Number(value?.page || 0); if (remoteUrl) { await remote('result', { id, resultKey, pageNumber, resultKind, value }); return value; } const now = new Date().toISOString(); db.prepare(`INSERT INTO transcription_results (job_id,result_key,page_number,result_kind,attempts,value_json,completed_at,updated_at) VALUES (?,?,?,?,1,?,?,?) ON CONFLICT(job_id,result_key) DO UPDATE SET result_kind=excluded.result_kind,attempts=transcription_results.attempts+1,value_json=excluded.value_json,completed_at=excluded.completed_at,updated_at=excluded.updated_at`).run(id,resultKey,pageNumber,resultKind,JSON.stringify(value),now,now); return value; }
+  async savePageResult(id, pageNumber, value) { return this.saveResult(id, value?.resultKey || `page:${pageNumber}`, value); }
+  async getCompletedResultKeys(id) { if (remoteUrl) { const { keys } = await remote('completed_results', { id }); return keys || []; } return db.prepare("SELECT result_key FROM transcription_results WHERE job_id=? AND result_kind='checkpoint'").all(id).map(row => row.result_key); }
+  async getCheckpointResults(id) { if (remoteUrl) { const { results } = await remote('checkpoint_results', { id }); return results || []; } return db.prepare("SELECT value_json FROM transcription_results WHERE job_id=? AND result_kind='checkpoint' ORDER BY page_number,result_key").all(id).map(row => JSON.parse(row.value_json)); }
+  async getCompletedPageNumbers(id) { return (await this.getCompletedResultKeys(id)).filter(key => /^page:\d+$/.test(key)).map(key => Number(key.slice(5))); }
+  async saveFinalResults(id, value) { if (remoteUrl) return remote('final_results', { id, pages: value?.pages || [] }); const now = new Date().toISOString(); const remove = db.prepare("DELETE FROM transcription_results WHERE job_id=? AND result_kind='final'"); const insert = db.prepare("INSERT INTO transcription_results (job_id,result_key,page_number,result_kind,attempts,value_json,completed_at,updated_at) VALUES (?,?,?,'final',1,?,?,?)"); remove.run(id); (value?.pages || []).forEach((page,index) => insert.run(id,`final:${String(index).padStart(5,'0')}`,Number(page.page || index + 1),JSON.stringify(page),now,now)); }
   async saveDocument(job, buffer) { if (remoteUrl) return remote('file_put', { id: job.id, fileKey: job.fileKey, content: buffer.toString('base64'), contentType: 'application/pdf', expiresAt: job.expiresAt }); const fileDir = path.join(dataDir, 'documents'); fs.mkdirSync(fileDir, { recursive: true }); fs.writeFileSync(path.join(fileDir, `${job.id}.pdf`), buffer); }
   async getDocument(job) { if (remoteUrl) { const { content } = await remote('file_get', { fileKey: job.fileKey }); return Buffer.from(content, 'base64'); } return fs.readFileSync(path.join(dataDir, 'documents', `${job.id}.pdf`)); }
   async listJobs() { if (remoteUrl) { const { jobs } = await remote('list'); return jobs || []; } return db.prepare('SELECT * FROM transcription_jobs ORDER BY updated_at DESC').all().map(hydrate); }
-  async deleteJob(id) { const job = await this.getJob(id); if (!job) return null; if (remoteUrl) await remote('delete', { id, fileKey: job.fileKey }); else { try { fs.unlinkSync(path.join(dataDir, 'documents', `${id}.pdf`)); } catch (_) {} db.prepare('DELETE FROM transcription_pages WHERE job_id=?').run(id); db.prepare('DELETE FROM transcription_jobs WHERE id=?').run(id); } this.jobs.delete(id); return job; }
+  async deleteJob(id) { const job = await this.getJob(id); if (!job) return null; if (remoteUrl) await remote('delete', { id, fileKey: job.fileKey }); else { try { fs.unlinkSync(path.join(dataDir, 'documents', `${id}.pdf`)); } catch (_) {} db.prepare('DELETE FROM transcription_results WHERE job_id=?').run(id); db.prepare('DELETE FROM transcription_pages WHERE job_id=?').run(id); db.prepare('DELETE FROM transcription_jobs WHERE id=?').run(id); } this.jobs.delete(id); return job; }
   async startRetry(id, message = 'Retomando auditoria pelas páginas pendentes...') { const job = await this.getJob(id); if (!job || job.status === 'processando') return job; job.status = 'processando'; job.erro = null; job.lastError = null; job.progress = { ...job.progress, message }; job.retryCount = (job.retryCount || 0) + 1; return this.persist(job); }
   async completeJob(id, value) {
     const job = await this.getJob(id);
     if (!job) return null;
+    await this.saveFinalResults(id, value);
     job.status = 'concluido';
     job.erro = null;
     job.value = null;
@@ -106,6 +112,6 @@ export class TranscriptionStore {
   }
   async failJob(id, error) { const job = await this.getJob(id); if (!job) return null; job.status='erro'; job.erro=error || 'Erro interno no processamento do documento'; job.lastError=job.erro; job.value=null; job.progress={...job.progress,message:'Ocorreu um erro durante o processamento.'}; return this.persist(job); }
   async updateJobValue(id, value) { const job = await this.getJob(id); if (!job) return null; job.value=value; return this.persist(job); }
-  async clear() { this.jobs.clear(); if (!remoteUrl) db.exec('DELETE FROM transcription_pages; DELETE FROM transcription_jobs;'); }
+  async clear() { this.jobs.clear(); if (!remoteUrl) db.exec('DELETE FROM transcription_results; DELETE FROM transcription_pages; DELETE FROM transcription_jobs;'); }
 }
 export const transcriptionStore = new TranscriptionStore();

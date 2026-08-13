@@ -166,6 +166,9 @@ Variáveis relevantes:
 | Variável | Uso |
 |---|---|
 | `OPENAI_API_KEY` ou `OPENAI_SECRET_KEY` | Obrigatória para qualquer transcrição, textual ou Vision |
+| `OPENAI_PAYROLL_MODEL` | Modelo primário de extração; padrão `gpt-5.6-sol` |
+| `OPENAI_PAYROLL_FALLBACK_MODEL` | Fallback explícito de qualidade; padrão `gpt-4o` |
+| `OPENAI_VISION_SCALE` | Escala inicial de rasterização; padrão `2`, elevada automaticamente quando a cobertura visual é insuficiente |
 | `PORT`, `HOST`, `LOG_LEVEL` | Configuração do servidor Fastify |
 | `APP_ENV=production` / `VERCEL` | Ativa o modo de produção |
 | `STATE_API_URL`, `STATE_API_TOKEN` | Persistência remota obrigatória em produção |

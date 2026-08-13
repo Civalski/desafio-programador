@@ -96,9 +96,10 @@ export async function transcriptionRoutes(fastify) {
         const docTypeMapping = 'payroll';
         const persistence = createPersistenceQueue();
         const onProgress = progUpdate => persistence.enqueue(() => transcriptionStore.updateJobProgress(job.id, progUpdate));
-        const onPageCompleted = page => persistence.enqueue(() => transcriptionStore.savePageResult(job.id, page.page, page));
-        const completedPageNumbers = await transcriptionStore.getCompletedPageNumbers(job.id);
-        const parsedResult = await aiProviderService.parseDocument(tempFilePath, docTypeMapping, { onProgress, onPageCompleted, completedPageNumbers });
+        const onPageCompleted = result => persistence.enqueue(() => transcriptionStore.saveResult(job.id, result.resultKey, result));
+        const completedResultKeys = await transcriptionStore.getCompletedResultKeys(job.id);
+        const completedResults = await transcriptionStore.getCheckpointResults(job.id);
+        const parsedResult = await aiProviderService.parseDocument(tempFilePath, docTypeMapping, { onProgress, onPageCompleted, completedResultKeys, completedResults });
         await persistence.flush();
 
         // Se o resultado for válido, conclui o job
@@ -160,8 +161,9 @@ export async function transcriptionRoutes(fastify) {
       try {
         const mapping = 'payroll';
         const persistence = createPersistenceQueue();
-        const completedPageNumbers = await transcriptionStore.getCompletedPageNumbers(resumed.id);
-        const result = await aiProviderService.parseDocument(tempFilePath, mapping, { completedPageNumbers, onProgress: update => persistence.enqueue(() => transcriptionStore.updateJobProgress(resumed.id, update)), onPageCompleted: page => persistence.enqueue(() => transcriptionStore.savePageResult(resumed.id, page.page, page)) });
+        const completedResultKeys = await transcriptionStore.getCompletedResultKeys(resumed.id);
+        const completedResults = await transcriptionStore.getCheckpointResults(resumed.id);
+        const result = await aiProviderService.parseDocument(tempFilePath, mapping, { completedResultKeys, completedResults, onProgress: update => persistence.enqueue(() => transcriptionStore.updateJobProgress(resumed.id, update)), onPageCompleted: item => persistence.enqueue(() => transcriptionStore.saveResult(resumed.id, item.resultKey, item)) });
         await persistence.flush();
         await transcriptionStore.completeJob(resumed.id, result);
       } catch (error) { await transcriptionStore.failJob(resumed.id, error.message || 'Falha ao retomar auditoria'); }
