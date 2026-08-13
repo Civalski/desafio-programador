@@ -20,9 +20,7 @@ export const config = {
   openaiApiKey: process.env.OPENAI_API_KEY || process.env.OPENAI_SECRET_KEY || '',
   dataInputDir: process.env.DATA_INPUT_DIR 
     ? path.resolve(process.env.DATA_INPUT_DIR)
-    : (fs.existsSync(path.resolve(process.cwd(), '../data_input'))
-        ? path.resolve(process.cwd(), '../data_input')
-        : path.resolve(process.cwd(), 'data_input')),
+    : path.resolve(process.cwd(), 'exemplos'),
 };
 
 export function validateEnv() {

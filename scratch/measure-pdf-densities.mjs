@@ -5,9 +5,9 @@ import { PDFExtract } from 'pdf.js-extract';
 const pdfExtract = new PDFExtract();
 
 async function inspectPdfs() {
-  const dir = path.resolve('../data_input/payroll');
+  const dir = path.resolve('exemplos');
   if (!fs.existsSync(dir)) {
-    console.log('Dir ../data_input/payroll not found');
+    console.log('Diretorio exemplos/payroll nao encontrado');
     return;
   }
 

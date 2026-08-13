@@ -27,3 +27,13 @@ test('API recusa tipos de documento fora do escopo', async () => {
     assert.equal(response.statusCode, 400);
   } finally { await app.close(); }
 });
+
+test('API recusa cartão de ponto', async () => {
+  const app = await buildApp({ logger: false });
+  await app.ready();
+  try {
+    const response = await app.inject({ method: 'POST', url: '/api/transcricoes', headers: { 'content-type': 'multipart/form-data; boundary=boundary' }, payload: '--boundary\r\nContent-Disposition: form-data; name="tipo"\r\n\r\ncartao-ponto\r\n--boundary--\r\n' });
+    assert.equal(response.statusCode, 400);
+    assert.match(response.json().erro, /holerite/);
+  } finally { await app.close(); }
+});

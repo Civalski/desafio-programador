@@ -27,7 +27,6 @@ export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(() => !requiresLogin || sessionStorage.getItem('quick_filler_authenticated') === 'true');
 
   const [uploadedFile, setUploadedFile] = useState(null);
-  const [tipo, setTipo] = useState('holerite');
   const [jobId, setJobId] = useState(null);
   const [jobStatus, setJobStatus] = useState('idle');
   const [jobProgress, setJobProgress] = useState(null);
@@ -70,9 +69,8 @@ export default function App() {
     return () => clearInterval(interval);
   }, [isAuthenticated, jobId, jobStatus]);
 
-  const handleUpload = async (file, documentType) => {
+  const handleUpload = async (file) => {
     setUploadedFile(file);
-    setTipo(documentType);
     setJobStatus('processando');
     setJobProgress({
       current: 0,
@@ -87,7 +85,7 @@ export default function App() {
     try {
       const formData = new FormData();
       formData.append('arquivo', file);
-      formData.append('tipo', documentType);
+      formData.append('tipo', 'holerite');
 
       const res = await fetch('/api/transcricoes', {
         method: 'POST',
@@ -96,7 +94,7 @@ export default function App() {
 
       if (!res.ok) {
         const errJson = await readJsonResponse(res, 'O servidor não conseguiu receber o arquivo. Tente novamente.');
-        throw new Error(errJson.erro || 'Erro ao enviar arquivo.');
+        throw new Error(errJson.erro || errJson.message || `Erro ao enviar arquivo (HTTP ${res.status}).`);
       }
 
       const resJson = await readJsonResponse(res, 'O servidor retornou uma resposta inválida ao iniciar a transcrição.');
@@ -143,8 +141,8 @@ export default function App() {
     setSavedPdfUrl('');
     setScreen('main');
   };
-  const openSaved = async item => { const res = await fetch(`/api/transcricoes/${item.id}`); if (!res.ok) return setErrorMessage('Não foi possível abrir a auditoria.'); const data = await res.json(); setJobId(data.id); setTipo(data.tipo); setExtractedData(data.value); setUploadedFile(null); setSavedPdfUrl(`/api/transcricoes/${item.id}/arquivo`); setJobStatus(data.status); setScreen('main'); };
-  const resumeSaved = async item => { const res = await fetch(`/api/transcricoes/${item.id}/retomar`, { method: 'POST' }); if (!res.ok) return setErrorMessage('Não foi possível retomar a auditoria.'); const data = await res.json(); setJobId(data.id); setTipo(item.tipo); setUploadedFile(null); setSavedPdfUrl(`/api/transcricoes/${item.id}/arquivo`); setJobStatus('processando'); setScreen('main'); };
+  const openSaved = async item => { const res = await fetch(`/api/transcricoes/${item.id}`); if (!res.ok) return setErrorMessage('Não foi possível abrir a auditoria.'); const data = await res.json(); setJobId(data.id); setExtractedData(data.value); setUploadedFile(null); setSavedPdfUrl(`/api/transcricoes/${item.id}/arquivo`); setJobStatus(data.status); setScreen('main'); };
+  const resumeSaved = async item => { const res = await fetch(`/api/transcricoes/${item.id}/retomar`, { method: 'POST' }); if (!res.ok) return setErrorMessage('Não foi possível retomar a auditoria.'); const data = await res.json(); setJobId(data.id); setUploadedFile(null); setSavedPdfUrl(`/api/transcricoes/${item.id}/arquivo`); setJobStatus('processando'); setScreen('main'); };
 
   const handleLogout = () => {
     sessionStorage.removeItem('quick_filler_authenticated');
@@ -192,7 +190,6 @@ export default function App() {
           {jobStatus === 'processando' && (
             <TranscriptionProgress 
               file={uploadedFile} 
-              tipo={tipo} 
               progress={jobProgress} 
             />
           )}
@@ -211,7 +208,6 @@ export default function App() {
                 <PdfViewer file={uploadedFile} pdfUrl={savedPdfUrl} />
                 <EditableTable 
                   data={extractedData} 
-                  tipo={tipo} 
                   onChangeData={setExtractedData} 
                 />
               </div>

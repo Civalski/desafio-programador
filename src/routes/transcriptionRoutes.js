@@ -51,13 +51,7 @@ export async function transcriptionRoutes(fastify) {
     // Validação dos parâmetros obrigatórios
     if (tipo !== 'holerite') {
       return reply.status(400).send({
-        erro: 'O parâmetro "tipo" é obrigatório e deve ser "cartao-ponto" ou "holerite"'
-      });
-    }
-
-    if (tipo === 'cartao-ponto' && !isTimeCardEnabled()) {
-      return reply.status(403).send({
-        erro: 'A transcrição de cartão de ponto está disponível somente no ambiente de desenvolvimento.'
+        erro: 'O parâmetro "tipo" é obrigatório e deve ser "holerite"'
       });
     }
 

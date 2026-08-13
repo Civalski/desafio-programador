@@ -8,20 +8,6 @@ const DANGER = 'F8D7DA';
 const DANGER_BORDER = 'DC3545';
 const csv = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
 
-function timeCardRows(pages) {
-  const maxPunches = Math.max(0, ...pages.flatMap(p => p.days || []).map(d => (d.punches || []).length));
-  const headers = ['Data'];
-  for (let i = 0; i < maxPunches; i += 2) headers.push(`Entrada ${i / 2 + 1}`, `Saída ${i / 2 + 1}`);
-  let previous = null;
-  const rows = pages.flatMap(page => (page.days || []).map(day => {
-    const nonSequential = previous && isNonSequentialDate(previous.date_raw, day.date_raw);
-    previous = day;
-    const punches = (day.punches || []).map(p => p.time_hhmm || p.time_raw || '');
-    return { values: [day.date_raw || '', ...punches], warning: !nonSequential && (punches.length % 2 !== 0 || [day.date_raw, ...punches].some(v => String(v).includes('?'))), danger: nonSequential };
-  }));
-  return { headers, rows };
-}
-
 function payrollRows(pages) {
   const labels = new Map();
   pages.forEach(p => (p.fields || []).forEach(f => { const label = String(f.label || f.description || '').trim(); if (label && !labels.has(normalizeLabelKey(label))) labels.set(normalizeLabelKey(label), label); }));
@@ -56,7 +42,7 @@ export async function generateExport(job, format = 'xlsx') {
   if (selected !== 'xlsx') throw new Error('Formato de exportação inválido');
 
   const workbook = new ExcelJS.Workbook();
-  const worksheet = workbook.addWorksheet(job.tipo === 'cartao-ponto' ? 'Cartão de Ponto' : 'Holerite');
+  const worksheet = workbook.addWorksheet('Holerite');
   const { headers, rows } = exportModel(job);
   worksheet.columns = headers.map(header => ({ header, key: header, width: Math.max(12, header.length + 3) }));
   rows.forEach(row => worksheet.addRow(row.values));

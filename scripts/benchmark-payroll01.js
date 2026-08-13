@@ -375,8 +375,8 @@ async function main() {
   console.log('   📊 BENCHMARK DETERMINÍSTICO DE EXTRAÇÃO - PAYROLL-01');
   console.log('===============================================================\n');
 
-  const gtPath = path.resolve(config.dataInputDir, 'payroll01_aud/dados_auditados_manualmente.txt');
-  const pdfPath = path.resolve(config.dataInputDir, 'payroll/payroll-01.pdf');
+  const gtPath = path.resolve('tests/fixtures/payroll-01-audit.txt');
+  const pdfPath = path.resolve(config.dataInputDir, 'holerite-1.pdf');
 
   console.log(`📂 Carregando Ground Truth Auditado de:`);
   console.log(`   ${gtPath}`);

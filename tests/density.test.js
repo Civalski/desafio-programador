@@ -23,13 +23,13 @@ test('AnÃ¡lise de Densidade - FunÃ§Ãµes UnitÃ¡rias', () => {
 });
 
 test('AnÃ¡lise de Densidade em Documentos da Base (data_input)', async () => {
-  const payrollDir = path.resolve(config.dataInputDir, 'payroll');
+  const payrollDir = config.dataInputDir;
   if (!fs.existsSync(payrollDir)) {
     console.log('âš ï¸ Pasta de entrada payroll nÃ£o encontrada, pulando teste em arquivos fÃ­sicos.');
     return;
   }
 
-  const files = fs.readdirSync(payrollDir).filter(f => f.endsWith('.pdf')).sort();
+  const files = fs.readdirSync(payrollDir).filter(f => /^holerite-\d+\.pdf$/.test(f)).sort();
   assert.ok(files.length > 0, 'Deve haver ao menos 1 arquivo PDF em data_input/payroll');
 
   for (const file of files) {

@@ -2,7 +2,6 @@ import OpenAI from 'openai';
 import fs from 'fs';
 import { config } from '../config/env.js';
 import { normalizePayrollResponse } from '../normalizers/payrollNormalizer.js';
-import { getMockData } from '../mocks/mockProvider.js';
 import { extractPayrollLocalPdf, rasterizePdfPages } from '../utils/pdfExtractor.js';
 import { detectFichaFinanceira, segmentAllMonthBlocks } from '../utils/fichaFinanceiraSegmenter.js';
 import { analyzePageDensity, selectExtractionStrategy } from '../utils/densityAnalyzer.js';
@@ -192,9 +191,6 @@ Formato JSON estrito:
   ]
 }`;
 
-const PROMPT_TIME_CARD = `Você transcreve cartões de ponto brasileiros. Retorne somente JSON. Preserve estritamente a ordem visual de cima para baixo e inclua todos os dias impressos, inclusive sem batidas. Extraia apenas texto visualmente legível: se data ou horário estiver ilegível ou impreciso, use string vazia. Nunca invente, deduza ou complete horários. Batidas devem alternar IN, OUT conforme a ordem visual.
-Formato: {"days":[{"date_raw":"DD/MM/AAAA ou vazio","punches":[{"kind":"IN ou OUT","time_raw":"HH:MM ou vazio"}]}]}`;
-const PROMPT_TIME_CARD_REVIEW = `Revise a transcrição de cartão de ponto abaixo contra a página fornecida. Corrija somente usando evidência visual. Preserve todas as linhas existentes e a ordem; preencha campo sem leitura confiável com string vazia. Retorne somente JSON válido no formato {"days":[...]}.`;
 function parseCurrency(value) {
   if (value === null || value === undefined || value === '') return null;
   const normalized = String(value).replace(/[^\d,.-]/g, '').replace(/\./g, '').replace(',', '.');
@@ -598,55 +594,6 @@ export class OpenAIService {
     }
   }
 
-  /**
-   * Envia o PDF de CartÃ£o de Ponto para a API da OpenAI e retorna o DTO normalizado.
-   */
-  async parseTimeCard(filePath, options = {}) {
-    if (!fs.existsSync(filePath)) throw new Error(`Arquivo não encontrado: ${filePath}`);
-    if (options.useMock) return normalizeTimeCardResponse(getMockData(filePath, 'time_card'));
-    const onProgress = options.onProgress || (() => {});
-    const onPageCompleted = options.onPageCompleted || (() => {});
-    const pages = await this.extractPdfTextPages(filePath);
-    const localPages = pages.map(extractTimeCardTextPage);
-    const fallbackPages = pages.filter((page, index) => !localPages[index].detectedDays || !localPages[index].detectedPunches);
-    const visionPages = fallbackPages.map(page => page.pageNum);
-    if (visionPages.length && !this.isReady()) {
-      throw new Error('Não foi possível localizar dias e horários na camada de texto. Este cartão requer extração visual; configure OPENAI_API_KEY para processá-lo.');
-    }
-    const images = visionPages.length ? await rasterizePdfPages(filePath, visionPages, { scale: 2 }) : new Map();
-    let completed = 0;
-    onProgress({ current: 0, total: pages.length, percentage: 10, message: 'Analisando páginas do cartão de ponto...' });
-    const results = await Promise.all(pages.map(async (page, index) => {
-      const local = localPages[index];
-      if (local.detectedDays && local.detectedPunches) {
-        console.info(JSON.stringify({ event: 'time_card_page_extracted', page: page.pageNum, strategy: 'TEXT_LAYOUT', days: local.detectedDays, punches: local.detectedPunches }));
-        completed++;
-        onPageCompleted(local);
-        onProgress({ current: completed, total: pages.length, percentage: Math.min(95, Math.round(10 + completed / pages.length * 85)), message: `Página ${completed} de ${pages.length} concluída` });
-        return local;
-      }
-      const strategy = 'VISION_FALLBACK';
-      const input = [{ type: 'text', text: 'Transcreva esta imagem de cartão de ponto.' }, { type: 'image_url', image_url: { url: images.get(page.pageNum)?.dataUrl, detail: 'high' } }];
-      const run = async prompt => { const raw = await this.generateCompletionWithFallback([{ role: 'system', content: prompt }, { role: 'user', content: input }]); try { return JSON.parse(raw); } catch { return {}; } };
-      let normalized = normalizeTimeCardResponse({ pages: [{ page: page.pageNum, ...(await run(PROMPT_TIME_CARD)) }] }).pages[0];
-      const audit = auditTimeCardPage(normalized);
-      if (audit.needsReview) {
-        const reviewed = await run(`${PROMPT_TIME_CARD_REVIEW}\nMotivos: ${audit.reasons.join('; ')}`);
-        const reviewedNormalized = normalizeTimeCardResponse({ pages: [{ page: page.pageNum, ...reviewed }] }).pages[0];
-        if (timeCardMetrics({ pages: [reviewedNormalized] }).punches >= timeCardMetrics({ pages: [normalized] }).punches) normalized = reviewedNormalized;
-      }
-      const metrics = timeCardMetrics({ pages: [normalized] });
-      console.info(JSON.stringify({ event: 'time_card_page_extracted', page: page.pageNum, strategy, days: metrics.days, punches: metrics.punches }));
-      completed++;
-      onPageCompleted(normalized);
-      onProgress({ current: completed, total: pages.length, percentage: Math.min(95, Math.round(10 + completed / pages.length * 85)), message: `Página ${completed} de ${pages.length} concluída` });
-      return normalized;
-    }));
-    const result = normalizeTimeCardResponse({ pages: results });
-    const metrics = timeCardMetrics(result);
-    if (!metrics.days || !metrics.punches) throw new Error('A transcrição não encontrou dias ou horários no documento. Verifique a legibilidade do PDF ou tente um arquivo com melhor resolução.');
-    return result;
-  }
   async parseDocument(filePath, documentType, options = {}) {
     if (documentType === 'payroll') {
       return this.parsePayroll(filePath, options);

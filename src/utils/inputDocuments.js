@@ -3,7 +3,7 @@ import path from 'path';
 import { config } from '../config/env.js';
 
 /**
- * Utilitário para localizar e listar os documentos em data_input sem realizar a leitura/OCR.
+ * Utilitário para localizar e listar os documentos em exemplos/ sem realizar a leitura/OCR.
  */
 export function listInputDocuments() {
   const baseDir = config.dataInputDir;
@@ -27,10 +27,10 @@ export function listInputDocuments() {
     for (const item of items) {
       const fullPath = path.join(dir, item.name);
       if (item.isDirectory()) {
-        const subCat = item.name === 'payroll' ? 'payroll' : category;
+        const subCat = category;
         readDirRecursive(fullPath, subCat);
       } else if (item.isFile() && item.name.toLowerCase().endsWith('.pdf')) {
-        const targetCategory = result.categories[category] ? category : 'other';
+        const targetCategory = item.name.toLowerCase().startsWith('holerite-') ? 'payroll' : 'other';
         result.categories[targetCategory].push({
           name: item.name,
           relativePath: path.relative(baseDir, fullPath),

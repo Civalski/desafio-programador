@@ -6,8 +6,8 @@ import { openaiService } from '../src/services/openaiService.js';
 import { config } from '../src/config/env.js';
 
 test('Suíte de Benchmark - payroll-01.pdf vs Ground Truth Auditado', async () => {
-  const gtPath = path.resolve(config.dataInputDir, 'payroll01_aud/dados_auditados_manualmente.txt');
-  const pdfPath = path.resolve(config.dataInputDir, 'payroll/payroll-01.pdf');
+  const gtPath = path.resolve('tests/fixtures/payroll-01-audit.txt');
+  const pdfPath = path.resolve(config.dataInputDir, 'holerite-1.pdf');
 
   // 1. Carrega Ground Truth
   const gtBlocks = parseGroundTruth(gtPath);
@@ -26,5 +26,5 @@ test('Suíte de Benchmark - payroll-01.pdf vs Ground Truth Auditado', async () =
   assert.ok(benchmarkResult.score10 >= 0 && benchmarkResult.score10 <= 10, 'Nota de precisão deve estar entre 0 e 10');
   assert.ok(Array.isArray(benchmarkResult.monthReports), 'Deve conter o relatório por mês');
 
-  console.log(`\n✅ [BENCHMARK TEST PASSED] Nota de Precisão (Mock Validation): ${benchmarkResult.score10} / 10.00 (${benchmarkResult.scorePercentage}%)`);
+  console.log('\n✅ [BENCHMARK TEST PASSED] Validação de sanidade concluída.');
 });

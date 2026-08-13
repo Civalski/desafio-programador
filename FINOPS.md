@@ -5,7 +5,7 @@
 
 ## Resumo
 
-- Apenas **holerites** usam IA; cartões de ponto usam dados mockados e não geram custo.
+- O escopo atual cobre exclusivamente **holerites**.
 - O modelo prioritário é **`gpt-5.6-luna`**. `gpt-4o` e `gpt-4o-mini` são usados somente se o modelo principal falhar ou sofrer limitação.
 - O PDF é analisado localmente e cada página segue uma estratégia conforme a densidade do conteúdo.
 - Os valores abaixo representam volume de chamadas, não custo: o custo real deve ser acompanhado pelos tokens retornados pela API.

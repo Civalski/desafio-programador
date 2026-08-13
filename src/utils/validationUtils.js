@@ -89,22 +89,6 @@ export function formatMoneyString(rawValue) {
   return String(rawValue);
 }
 
-/**
- * Identifica se a lista de batidas tem um número ímpar de marcações (alerta de batida ímpar).
- * @param {Array} punches 
- * @returns {boolean}
- */
-export function hasOddPunches(punches) {
-  return Array.isArray(punches) && punches.length % 2 !== 0;
-}
-
-export function isNonSequentialDate(previous, current) {
-  if (!isValidDateString(previous) || !isValidDateString(current)) return false;
-  const toDate = (value) => { const [day, month, year = '2024'] = value.split(/[/.-]/); return new Date(Number(year), Number(month) - 1, Number(day)); };
-  const expected = toDate(previous); expected.setDate(expected.getDate() + 1);
-  return expected.toDateString() !== toDate(current).toDateString();
-}
-
 export function isNonSequentialCompetency(previous, current) {
   const valid = ({ month, year }) => /^(0[1-9]|1[0-2])$/.test(String(month || '')) && /^\d{4}$/.test(String(year || ''));
   if (!valid(previous) || !valid(current)) return false;

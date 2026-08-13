@@ -19,7 +19,7 @@ export function UploadZone({ onUpload, isProcessing }) {
   const submit = (event) => {
     event.preventDefault();
     if (!selectedFile) return setError('Selecione um PDF para continuar.');
-    onUpload(selectedFile, 'holerite');
+    onUpload(selectedFile);
   };
 
   return <div className={`upload-card ${isDragOver ? 'drag-over' : ''}`}

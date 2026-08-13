@@ -1,9 +1,8 @@
 import React, { useState } from 'react';
-import { isNonSequentialDate, isNonSequentialCompetency } from '../../utils/validationUtils.js';
+import { isNonSequentialCompetency } from '../../utils/validationUtils.js';
 
-export function EditableTable({ data, tipo, onChangeData }) {
+export function EditableTable({ data, onChangeData }) {
   const [viewMode, setViewMode] = useState('grid'); // 'grid' (Excel Planilha Grid) ou 'list' (Lista Detalhada)
-  const [timeCardCurrentPage, setTimeCardCurrentPage] = useState(1);
 
   if (!data || !data.pages || data.pages.length === 0) {
     return (
@@ -18,9 +17,7 @@ export function EditableTable({ data, tipo, onChangeData }) {
     );
   }
 
-  // --- RENDERIZADOR DE HOLERITE ---
-  if (tipo === 'holerite') {
-    const pages = data.pages || [];
+  const pages = data.pages || [];
 
     // Mapear todas as verbas (fields) e bases únicas entre as páginas
     const verbaKeys = [];
@@ -103,7 +100,7 @@ export function EditableTable({ data, tipo, onChangeData }) {
       onChangeData({ ...data, pages: updatedPages });
     };
 
-    return (
+  return (
       <div className="panel">
         <div className="panel-header">
           <div className="panel-title">
@@ -350,121 +347,6 @@ export function EditableTable({ data, tipo, onChangeData }) {
           )}
         </div>
       </div>
-    );
-  }
-
-  // --- RENDERIZADOR DE CARTÃO DE PONTO ---
-  const days = data.pages.flatMap((page, pageIndex) => (page.days || []).map((day, dayIndex) => ({ day, page, pageIndex, dayIndex })));
-  const timeCardPageSize = 25;
-  const timeCardTotalPages = Math.max(1, Math.ceil(days.length / timeCardPageSize));
-  const activeTimeCardPage = Math.min(timeCardCurrentPage, timeCardTotalPages);
-  const visibleDays = days.slice((activeTimeCardPage - 1) * timeCardPageSize, activeTimeCardPage * timeCardPageSize);
-
-  const handlePunchChange = (pageIndex, dayIndex, punchIndex, val) => {
-    const page = data.pages[pageIndex];
-    const updatedDays = [...(page.days || [])];
-    const day = { ...updatedDays[dayIndex] };
-    const punches = [...day.punches];
-    punches[punchIndex] = { ...punches[punchIndex], time_hhmm: val, time_raw: val };
-    day.punches = punches;
-    updatedDays[dayIndex] = day;
-
-    const updatedPages = [...data.pages];
-    updatedPages[pageIndex] = { ...page, days: updatedDays };
-    onChangeData({ ...data, pages: updatedPages });
-  };
-
-  const handleDateChange = (pageIndex, dayIndex, val) => {
-    const page = data.pages[pageIndex];
-    const updatedDays = [...(page.days || [])];
-    updatedDays[dayIndex] = { ...updatedDays[dayIndex], date_raw: val };
-
-    const updatedPages = [...data.pages];
-    updatedPages[pageIndex] = { ...page, days: updatedDays };
-    onChangeData({ ...data, pages: updatedPages });
-  };
-
-  return (
-    <div className="panel">
-      <div className="panel-header">
-        <div className="panel-title">Revisor de Cartão de Ponto</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <span style={{ fontSize: '0.8rem', color: 'var(--text-subtle)', fontWeight: 500 }}>{days.length} Dias Mapeados</span>
-          {days.length > timeCardPageSize && <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-            <button type="button" className="radio-btn" disabled={activeTimeCardPage === 1} onClick={() => setTimeCardCurrentPage(activeTimeCardPage - 1)}>Anterior</button>
-            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Página {activeTimeCardPage} de {timeCardTotalPages}</span>
-            <button type="button" className="radio-btn" disabled={activeTimeCardPage === timeCardTotalPages} onClick={() => setTimeCardCurrentPage(activeTimeCardPage + 1)}>Próxima</button>
-          </div>}
-        </div>
-      </div>
-
-      <div className="table-container">
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th style={{ width: '110px' }}>Data</th>
-              <th>Batidas de Ponto (Entradas / Saídas)</th>
-              <th style={{ width: '130px' }}>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {visibleDays.map(({ day, page, pageIndex, dayIndex }, visibleIndex) => {
-              const dIdx = (activeTimeCardPage - 1) * timeCardPageSize + visibleIndex;
-              const punches = day.punches || [];
-              const isOdd = punches.length % 2 !== 0;
-              const hasUncertainty = day.date_raw?.includes('?') || punches.some(p => p.time_hhmm?.includes('?'));
-
-              let rowClass = '';
-              let alertText = 'OK';
-
-              const previous = days[dIdx - 1]?.day;
-              const nonSequential = previous && isNonSequentialDate(previous.date_raw, day.date_raw);
-              if (nonSequential) {
-                rowClass = 'row-danger';
-                alertText = 'Data não sequencial';
-              } else if (isOdd) {
-                rowClass = 'row-warning';
-                alertText = 'Batida Ímpar';
-              } else if (hasUncertainty) {
-                rowClass = 'row-warning';
-                alertText = 'Incerteza (?)';
-              }
-
-              return (
-                <tr key={`day-${dIdx}`} className={rowClass}>
-                  <td>
-                    <input 
-                      className="input-cell"
-                      value={day.date_raw || ''} 
-                      onChange={(e) => handleDateChange(pageIndex, dayIndex, e.target.value)}
-                    />
-                  </td>
-                  <td>
-                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                      {punches.map((punch, pIdx) => (
-                        <div key={`p-${pIdx}`} style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                          <span style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-muted)' }}>
-                            {punch.kind || (pIdx % 2 === 0 ? 'IN' : 'OUT')}:
-                          </span>
-                          <input 
-                            className="input-cell"
-                            style={{ width: '65px', textAlign: 'center' }}
-                            value={punch.time_hhmm || punch.time_raw || ''} 
-                            onChange={(e) => handlePunchChange(pageIndex, dayIndex, pIdx, e.target.value)}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  </td>
-                  <td>
-                    <span style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.03em' }}>{alertText}</span>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
   );
+
 }

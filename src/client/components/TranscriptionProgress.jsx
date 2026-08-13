@@ -1,12 +1,12 @@
 import React from 'react';
 
-export function TranscriptionProgress({ file, tipo, progress }) {
+export function TranscriptionProgress({ file, progress }) {
   const percentage = Math.min(100, Math.max(0, progress?.percentage || 0));
   const current = progress?.current || 0;
   const total = progress?.total || 0;
   const message = progress?.message || 'Processando transcrição do documento...';
 
-  const docTypeName = tipo === 'holerite' ? 'Holerite' : 'Cartão de Ponto';
+  const docTypeName = 'Holerite';
 
   // Define os 3 passos visuais para o usuário final
   const steps = [

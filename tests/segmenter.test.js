@@ -9,7 +9,7 @@ import { config } from '../src/config/env.js';
 const pdfExtract = new PDFExtract();
 
 test('Segmentador de Holerites - Detecção de 6 holerites em payroll-01.pdf', async () => {
-  const filePath = path.resolve(config.dataInputDir, 'payroll/payroll-01.pdf');
+  const filePath = path.resolve(config.dataInputDir, 'holerite-1.pdf');
   const data = await pdfExtract.extract(filePath, {});
   
   assert.ok(data.pages.length >= 1, 'PDF deve ter páginas');
@@ -33,7 +33,7 @@ test('Segmentador de Holerites - Detecção de 6 holerites em payroll-01.pdf', a
 });
 
 test('Segmentador de Holerites - Detecção de 2 holerites com alturas diferentes em payroll-02.pdf', async () => {
-  const filePath = path.resolve(config.dataInputDir, 'payroll/payroll-02.pdf');
+  const filePath = path.resolve(config.dataInputDir, 'holerite-2.pdf');
   const data = await pdfExtract.extract(filePath, {});
   
   const page1 = data.pages[0];
@@ -45,7 +45,7 @@ test('Segmentador de Holerites - Detecção de 2 holerites com alturas diferente
 });
 
 test('Segmentador de Holerites - Detecção de 1 holerite único em payroll-03.pdf', async () => {
-  const filePath = path.resolve(config.dataInputDir, 'payroll/payroll-03.pdf');
+  const filePath = path.resolve(config.dataInputDir, 'holerite-3.pdf');
   const data = await pdfExtract.extract(filePath, {});
   
   const page1 = data.pages[0];
@@ -56,7 +56,7 @@ test('Segmentador de Holerites - Detecção de 1 holerite único em payroll-03.p
 });
 
 test('Segmentador de Holerites - Resiliência e Fallback em PDF sem texto (payroll-04.pdf)', async () => {
-  const filePath = path.resolve(config.dataInputDir, 'payroll/payroll-04.pdf');
+  const filePath = path.resolve(config.dataInputDir, 'holerite-4.pdf');
   const data = await pdfExtract.extract(filePath, {});
   
   const page1 = data.pages[0];
@@ -68,7 +68,7 @@ test('Segmentador de Holerites - Resiliência e Fallback em PDF sem texto (payro
 });
 
 test('Extrator Local com Segmentação Integrada - payroll-01.pdf', async () => {
-  const filePath = path.resolve(config.dataInputDir, 'payroll/payroll-01.pdf');
+  const filePath = path.resolve(config.dataInputDir, 'holerite-1.pdf');
   const result = await extractPayrollLocalPdf(filePath);
 
   assert.ok(result.pages, 'Deve conter a chave "pages"');

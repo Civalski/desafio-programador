@@ -7,7 +7,9 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { transcriptionRoutes } from './routes/transcriptionRoutes.js';
 
-dotenv.config();
+// Na Vercel as variáveis já chegam em process.env; carregar um .env ausente é
+// normal e não deve poluir os logs da Function.
+dotenv.config({ quiet: true });
 
 /**
  * Constrói e configura a aplicação Fastify.
