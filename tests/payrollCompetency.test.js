@@ -30,3 +30,19 @@ test('preserva páginas separadas quando a unificação é desabilitada explicit
   ] }, { unifyCompetencies: false });
   assert.equal(result.pages.length, 2);
 });
+
+test('unifica tipos de folha e preserva ocorrências divergentes em ordem documental', () => {
+  const result = normalizePayrollResponse({ pages: [
+    { page: 1, blockIndex: 0, recordKey: 'a', month: '12', year: '2024', payrollType: 'normal', fields: [{ code: '10', label: 'Salário', value: '1.000,00' }] },
+    { page: 1, blockIndex: 1, recordKey: 'b', month: '12', year: '2024', payrollType: 'plr', fields: [{ code: '10', label: 'Salário', value: '500,00' }] },
+    { page: 2, blockIndex: 0, recordKey: 'c', month: '12', year: '2024', payrollType: 'historico_13', fields: [{ code: '10', label: 'Salário', value: '500,00' }] }
+  ] });
+  assert.equal(result.pages.length, 1);
+  assert.equal(result.pages[0].payrollType, 'unified');
+  assert.deepEqual(result.pages[0].sourcePayrollTypes, ['normal', 'plr', 'historico_13']);
+  assert.deepEqual(result.pages[0].fields.map(field => ({ occurrence: field.occurrence, value: field.value })), [
+    { occurrence: 1, value: '1.000,00' },
+    { occurrence: 2, value: '500,00' }
+  ]);
+  assert.equal(result.audit.duplicates.length, 0);
+});

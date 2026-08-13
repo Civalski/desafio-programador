@@ -1,6 +1,6 @@
 import ExcelJS from 'exceljs';
 import { isNonSequentialCompetency } from './validationUtils.js';
-import { buildCanonicalColumnRegistry, payrollTypeLabel, selectCanonicalItem } from './payrollCanonical.js';
+import { buildCanonicalColumnRegistry, payrollTypeLabel, selectCanonicalOccurrence } from './payrollCanonical.js';
 
 const HEADER = '173772';
 const WARNING = 'FFF3CD';
@@ -28,7 +28,7 @@ function payrollRows(pages) {
     if (readable) priorReadable = page;
     const valuesByColumn = new Map();
     columns.forEach(column => {
-      const item = selectCanonicalItem(column.kind === 'field' ? page.fields : page.bases, column.key, column.kind);
+      const item = selectCanonicalOccurrence(column.kind === 'field' ? page.fields : page.bases, column.canonicalKey, column.occurrence, column.kind);
       valuesByColumn.set(`${column.key}:${column.property}`, item?.[column.property] || '');
     });
     const unresolvedItems = [...(page.fields || []), ...(page.bases || [])].filter(item => item.reviewRequired || item.conflict || !item.canonicalKey);

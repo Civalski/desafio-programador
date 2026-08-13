@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { isNonSequentialCompetency } from '../../utils/validationUtils.js';
-import { buildCanonicalColumnRegistry, canonicalizePayrollItem, payrollTypeLabel, selectCanonicalItem } from '../../utils/payrollCanonical.js';
+import { buildCanonicalColumnRegistry, canonicalizePayrollItem, payrollTypeLabel, selectCanonicalOccurrence } from '../../utils/payrollCanonical.js';
 
 export function EditableTable({ data, onChangeData }) {
   const [viewMode, setViewMode] = useState('grid'); // 'grid' (Excel Planilha Grid) ou 'list' (Lista Detalhada)
@@ -30,20 +30,22 @@ export function EditableTable({ data, onChangeData }) {
 
       if (keyType === 'field') {
         const fields = [...(targetPage.fields || [])];
-        const fieldIdx = fields.findIndex((f) => canonicalizePayrollItem(f, 'field').canonicalKey === column.key);
+        const fieldIdx = fields.findIndex((f) => canonicalizePayrollItem(f, 'field').canonicalKey === column.canonicalKey && Number(f.occurrence || 1) === column.occurrence);
         if (fieldIdx >= 0) {
           fields[fieldIdx] = { ...fields[fieldIdx], value: val };
         } else {
-          fields.push({ code: column.code || '', label: column.label, originalLabel: column.label, canonicalKey: column.key, value: val });
+          const label = column.label.replace(/ \d+$/, '');
+          fields.push({ code: column.code || '', label, originalLabel: label, canonicalKey: column.canonicalKey, occurrence: column.occurrence, value: val });
         }
         targetPage.fields = fields;
       } else if (keyType === 'base') {
         const bases = [...(targetPage.bases || [])];
-        const baseIdx = bases.findIndex((b) => canonicalizePayrollItem(b, 'base').canonicalKey === column.key);
+        const baseIdx = bases.findIndex((b) => canonicalizePayrollItem(b, 'base').canonicalKey === column.canonicalKey && Number(b.occurrence || 1) === column.occurrence);
         if (baseIdx >= 0) {
           bases[baseIdx] = { ...bases[baseIdx], value: val };
         } else {
-          bases.push({ label: column.label, originalLabel: column.label, canonicalKey: column.key, value: val });
+          const label = column.label.replace(/ \d+$/, '');
+          bases.push({ label, originalLabel: label, canonicalKey: column.canonicalKey, occurrence: column.occurrence, value: val });
         }
         targetPage.bases = bases;
       } else if (keyType === 'competencia') {
@@ -201,7 +203,7 @@ export function EditableTable({ data, onChangeData }) {
                           <td>{payrollTypeLabel(p.payrollType)}</td>
 
                           {verbaColumns.map((column, vIdx) => {
-                            const fieldItem = selectCanonicalItem(p.fields || [], column.key, 'field');
+                            const fieldItem = selectCanonicalOccurrence(p.fields || [], column.canonicalKey, column.occurrence, 'field');
                             const val = fieldItem?.value || '';
                             const isUncertain = Boolean(fieldItem?.conflict) || val.includes('?');
 
@@ -218,7 +220,7 @@ export function EditableTable({ data, onChangeData }) {
                           })}
 
                           {baseColumns.map((column, bIdx) => {
-                            const baseItem = selectCanonicalItem(p.bases || [], column.key, 'base');
+                            const baseItem = selectCanonicalOccurrence(p.bases || [], column.canonicalKey, column.occurrence, 'base');
                             const val = baseItem?.value || '';
                             const isUncertain = Boolean(baseItem?.conflict) || val.includes('?');
 

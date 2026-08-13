@@ -26,12 +26,14 @@ async function auditedExtraction() {
 
 const money = value => Number(String(value).replace(/\./g, '').replace(',', '.'));
 
-test('holerite-1 preserva os 30 eventos e confere o inventário auditado bloco a bloco', async () => {
+test('holerite-1 consolida os 30 eventos em uma linha por competência sem perder o inventário bruto', async () => {
   const audit = JSON.parse(fs.readFileSync(path.resolve('tests/fixtures/payroll-01-block-audit.json'), 'utf8'));
   const { blocks, rawPages, normalized } = await auditedExtraction();
   assert.equal(blocks.length, 30);
   assert.equal(new Set(blocks.map(block => `${block.month}/${block.year}`)).size, 24);
-  assert.equal(normalized.pages.length, 30);
+  assert.equal(normalized.pages.length, 24);
+  assert.equal(new Set(normalized.pages.map(page => `${page.month}/${page.year}`)).size, 24);
+  assert.ok(normalized.pages.every(page => page.payrollType === 'unified'));
 
   audit.forEach((expected, index) => {
     const block = blocks[index];
@@ -48,13 +50,14 @@ test('holerite-1 preserva os 30 eventos e confere o inventário auditado bloco a
     }
   });
 
-  const typeCounts = Object.fromEntries(Object.entries(Object.groupBy(normalized.pages, page => page.payrollType)).map(([key, values]) => [key, values.length]));
-  assert.deepEqual(typeCounts, { normal: 24, plr: 4, historico_13: 2 });
+  const december2017 = normalized.pages.find(page => page.month === '12' && page.year === '2017');
+  assert.deepEqual(december2017.sourcePayrollTypes, ['normal', 'historico_13']);
+  assert.equal(december2017.sourceBlocks.length, 2);
 });
 
 test('holerite-1 mantém referência, valor, natureza e zero na coluna correta', async () => {
   const { normalized } = await auditedExtraction();
-  const april = normalized.pages.find(page => page.month === '04' && page.year === '2017' && page.payrollType === 'normal');
+  const april = normalized.pages.find(page => page.month === '04' && page.year === '2017');
   const reimbursement = april.fields.find(field => field.code === '40');
   const inss = april.fields.find(field => field.code === '511');
   const irrf = april.fields.find(field => field.code === '561');
@@ -66,17 +69,18 @@ test('holerite-1 mantém referência, valor, natureza e zero na coluna correta',
   assert.equal(irrf.value, '0,00');
   assert.equal(april.bases.find(base => base.canonicalKey === 'base:base_inss').value, '1.260,65');
 
-  const july = normalized.pages.find(page => page.month === '07' && page.year === '2018' && page.payrollType === 'normal');
+  const july = normalized.pages.find(page => page.month === '07' && page.year === '2018');
   assert.deepEqual(july.sourcePages, [3, 4]);
   assert.equal(july.bases.find(base => base.canonicalKey === 'base:valor_liquido').value, '1.394,74');
 });
 
-test('registro canônico limita o holerite-1 a 50 colunas e rejeita rótulo composto ambíguo', async () => {
+test('registro canônico cria colunas numeradas para ocorrências e rejeita rótulo composto ambíguo', async () => {
   const { normalized } = await auditedExtraction();
   const registry = buildCanonicalColumnRegistry(normalized.pages);
-  assert.equal(registry.fields.length, 40);
-  assert.equal(registry.bases.length, 10);
-  assert.equal(registry.fields.length + registry.bases.length, 50);
+  assert.equal(registry.fields.length, 49);
+  assert.equal(registry.bases.length, 13);
+  assert.ok(registry.fields.some(column => column.label === 'Part Lucr Resul 2' && column.occurrence === 2));
+  assert.ok(registry.bases.some(column => column.label === 'Valor Líquido 2' && column.occurrence === 2));
 
   const aliases = [
     canonicalizePayrollItem({ label: 'Base INSS', value: '1,00' }, 'base'),

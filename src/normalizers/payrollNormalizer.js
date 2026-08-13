@@ -27,11 +27,8 @@ export function unifyPayrollPages(pages = []) {
       return;
     }
 
-    const payrollType = p.payrollType || 'normal';
-    const blockIdentity = p.blockIndex !== null && p.blockIndex !== undefined
-      ? (p.recordKey || `${p.page}:${p.blockIndex}`)
-      : '';
-    const key = `${month.padStart(2, '0')}/${year}|${payrollType}|${blockIdentity}`;
+    const originalPayrollType = p.payrollType || 'normal';
+    const key = `${month.padStart(2, '0')}/${year}`;
 
     if (!grouped.has(key)) {
       grouped.set(key, {
@@ -39,7 +36,9 @@ export function unifyPayrollPages(pages = []) {
         blockIndex: p.blockIndex ?? null,
         recordKey: p.recordKey || null,
         sourcePages: p.sourcePages || [p.page],
-        payrollType,
+        payrollType: 'unified',
+        sourcePayrollTypes: [originalPayrollType],
+        sourceBlocks: p.blockIndex === null || p.blockIndex === undefined ? [] : [{ page: p.page, blockIndex: p.blockIndex, recordKey: p.recordKey || null }],
         year,
         month: month.padStart(2, '0'),
         fields: p.fields ? [...p.fields.map(f => ({ ...f }))] : [],
@@ -54,8 +53,10 @@ export function unifyPayrollPages(pages = []) {
       });
     } else {
       const existing = grouped.get(key);
-      existing.originalPages.push(p.page);
+      existing.originalPages = [...new Set([...existing.originalPages, p.page])];
       existing.sourcePages = [...new Set([...(existing.sourcePages || []), ...(p.sourcePages || [p.page])])];
+      existing.sourcePayrollTypes = [...new Set([...(existing.sourcePayrollTypes || []), originalPayrollType])];
+      if (p.blockIndex !== null && p.blockIndex !== undefined) existing.sourceBlocks.push({ page: p.page, blockIndex: p.blockIndex, recordKey: p.recordKey || null });
 
       const isZeroVal = (v) => !v || v === '0,00' || v === '0' || v === '0.00' || v === '0,0';
 
@@ -97,12 +98,7 @@ export function unifyPayrollPages(pages = []) {
             const fCode = String(f.code || '').trim();
             return (nCode && fCode === nCode) || (!nCode && normalizeLabelKey(f.label || '') === nLabelKey);
           }).length + 1;
-          if (match) {
-            match.conflict = true;
-            match.reviewRequired = true;
-            existing.reviewRequired = true;
-          }
-          existing.fields.push({ ...newField, occurrence, conflict: Boolean(match || newField.conflict), reviewRequired: Boolean(match || newField.reviewRequired) });
+          existing.fields.push({ ...newField, occurrence });
         }
       });
 
@@ -118,12 +114,7 @@ export function unifyPayrollPages(pages = []) {
           }
         } else {
           const occurrence = existing.bases.filter(b => normalizeLabelKey(String(b.label || '')) === nLabelKey).length + 1;
-          if (matchBase) {
-            matchBase.conflict = true;
-            matchBase.reviewRequired = true;
-            existing.reviewRequired = true;
-          }
-          existing.bases.push({ ...newBase, occurrence, conflict: Boolean(matchBase || newBase.conflict), reviewRequired: Boolean(matchBase || newBase.reviewRequired) });
+          existing.bases.push({ ...newBase, occurrence });
         }
       });
 
@@ -137,6 +128,8 @@ export function unifyPayrollPages(pages = []) {
 
   // Adiciona as competências agrupadas mantendo a ordem de aparição
   grouped.forEach((groupedPage) => {
+    groupedPage.fields = normalizeItemOccurrences(groupedPage.fields, 'field');
+    groupedPage.bases = normalizeItemOccurrences(groupedPage.bases, 'base');
     resultPages.push(groupedPage);
   });
 
@@ -357,6 +350,22 @@ export function normalizePayrollResponse(rawData, options = {}) {
   }
 
   return result;
+}
+
+function normalizeItemOccurrences(items = [], kind = 'field') {
+  const seen = new Set();
+  const counts = new Map();
+  const normalized = [];
+  for (const item of items) {
+    const canonicalKey = item.canonicalKey || `${kind}:label:${normalizeLabelKey(item.label || '')}`;
+    const signature = `${canonicalKey}|${String(item.reference || '')}|${String(item.value || '')}`;
+    if (seen.has(signature)) continue;
+    seen.add(signature);
+    const occurrence = (counts.get(canonicalKey) || 0) + 1;
+    counts.set(canonicalKey, occurrence);
+    normalized.push({ ...item, occurrence });
+  }
+  return normalized;
 }
 
 function inferPayrollType(pageData = {}, fields = []) {

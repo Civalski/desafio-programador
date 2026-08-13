@@ -255,7 +255,9 @@ export function runBenchmark(aiExtractionDTO, gtBlocks) {
     const aiBasesMap = new Map();
     (aiPage.bases || []).forEach(b => {
       const key = normalizeLabelKey(b.label);
-      if (key) aiBasesMap.set(key, parseNumber(b.value));
+      // A primeira ocorrência representa o demonstrativo mensal principal;
+      // ocorrências adicionais continuam disponíveis no DTO e na exportação.
+      if (key && !aiBasesMap.has(key)) aiBasesMap.set(key, parseNumber(b.value));
     });
 
     const checkTotalOrBase = (gtLabel, gtValue, possibleAiKeys) => {

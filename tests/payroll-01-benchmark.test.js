@@ -55,6 +55,8 @@ test('benchmark mock executa a extração determinística sem depender da OpenAI
 
   const result = await service.parsePayroll(path.resolve('exemplos', 'holerite-1.pdf'), { useMock: true });
 
-  assert.equal(result.pages.length, 30);
+  assert.equal(result.pages.length, 24);
+  assert.equal(new Set(result.pages.map(page => `${page.month}/${page.year}`)).size, 24);
+  assert.ok(result.pages.every(page => page.payrollType === 'unified'));
   assert.ok(result.pages.every(page => page.fields.length > 0));
 });

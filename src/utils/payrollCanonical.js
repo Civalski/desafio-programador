@@ -81,10 +81,11 @@ export function buildCanonicalColumnRegistry(pages = []) {
       if (!item.canonicalKey) continue;
       const existing = fields.get(item.canonicalKey);
       fields.set(item.canonicalKey, {
-        key: item.canonicalKey,
+        canonicalKey: item.canonicalKey,
         label: preferredLabel(existing?.label, item.label || item.originalLabel),
         code: existing?.code || String(item.code || '').trim(),
-        kind: 'field'
+        kind: 'field',
+        occurrences: Math.max(existing?.occurrences || 0, Number(item.occurrence || 1))
       });
     }
     for (const raw of page.bases || []) {
@@ -92,13 +93,18 @@ export function buildCanonicalColumnRegistry(pages = []) {
       if (!item.canonicalKey) continue;
       const existing = bases.get(item.canonicalKey);
       bases.set(item.canonicalKey, {
-        key: item.canonicalKey,
+        canonicalKey: item.canonicalKey,
         label: preferredLabel(existing?.label, item.label || item.originalLabel),
-        kind: 'base'
+        kind: 'base',
+        occurrences: Math.max(existing?.occurrences || 0, Number(item.occurrence || 1))
       });
     }
   }
-  return { fields: [...fields.values()], bases: [...bases.values()] };
+  const expand = entries => [...entries.values()].flatMap(column => Array.from({ length: column.occurrences }, (_, index) => {
+    const occurrence = index + 1;
+    return { ...column, key: `${column.canonicalKey}#${occurrence}`, occurrence, label: occurrence === 1 ? column.label : `${column.label} ${occurrence}` };
+  }));
+  return { fields: expand(fields), bases: expand(bases) };
 }
 
 export function itemsByCanonicalKey(items = [], kind = 'field') {
@@ -123,6 +129,12 @@ export function selectCanonicalItem(items = [], canonicalKey, kind = 'field') {
   return values.size > 1 ? { ...ordered[0], conflict: true, reviewRequired: true } : ordered[0];
 }
 
+export function selectCanonicalOccurrence(items = [], canonicalKey, occurrence = 1, kind = 'field') {
+  return (itemsByCanonicalKey(items, kind).get(canonicalKey) || [])
+    .find(item => Number(item.occurrence || 1) === Number(occurrence)) || null;
+}
+
 export function payrollTypeLabel(value = '') {
+  if (value === 'unified') return 'Unificado';
   return ({ normal: 'Folha normal', plr: 'PLR', decimo_terceiro: '13º salário', historico_13: 'Histórico de 13º', suplementar: 'Folha suplementar' })[value] || 'Folha normal';
 }

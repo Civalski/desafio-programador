@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import ExcelJS from 'exceljs';
 import { exportToCsv, generateExport } from '../src/utils/exportUtils.js';
 
 test('Exportação de holerite segue o contrato pivotado', async () => {
@@ -13,4 +14,25 @@ test('Exportação de holerite segue o contrato pivotado', async () => {
   const xlsx = await generateExport(job, 'xlsx');
   assert.equal(xlsx.filename, 'transcricao_test-job-123_holerite.xlsx');
   assert.ok(xlsx.content instanceof Buffer);
+});
+
+test('CSV e XLSX preservam verbas e bases numeradas na mesma linha', async () => {
+  const job = { id: 'occurrences', tipo: 'holerite', value: { pages: [{ page: 1, month: '12', year: '2024', payrollType: 'unified', fields: [
+    { code: '10', label: 'Salário', canonicalKey: 'field:code:10', occurrence: 1, reference: '220', value: '1.000,00' },
+    { code: '10', label: 'Salário', canonicalKey: 'field:code:10', occurrence: 2, reference: '10', value: '500,00' }
+  ], bases: [
+    { label: 'Valor Líquido', canonicalKey: 'base:valor_liquido', occurrence: 1, value: '900,00' },
+    { label: 'Valor Líquido', canonicalKey: 'base:valor_liquido', occurrence: 2, value: '450,00' }
+  ] }] } };
+  const csv = exportToCsv(job);
+  assert.match(csv, /"Salário 2","Salário 2 — Referência"/);
+  assert.match(csv, /"Valor Líquido","Valor Líquido 2"/);
+  assert.match(csv, /"1\.000,00","220","500,00","10","900,00","450,00"/);
+
+  const exported = await generateExport(job, 'xlsx');
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(exported.content);
+  const headers = workbook.getWorksheet('Holerite').getRow(1).values;
+  assert.ok(headers.includes('Salário 2'));
+  assert.ok(headers.includes('Valor Líquido 2'));
 });

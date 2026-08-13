@@ -62,6 +62,7 @@ PDF → validação de upload → job assíncrono → extração/normalização 
 - **OpenAI isolada em um serviço.** Prompts, seleção de modelo, tentativas e fallback ficam fora das rotas e da UI, mantendo a integração substituível e testável com mocks.
 - **Estratégia adaptativa por página.** A densidade de texto orienta o número de chamadas: páginas simples podem usar uma passagem; páginas densas podem ser divididas para reduzir omissões. O impacto esperado está documentado em `FINOPS.md`.
 - **Preservação do dado impresso.** Valores monetários permanecem strings brasileiras e os campos `*_raw` são mantidos para auditoria. É preferível sinalizar incerteza a produzir um valor aparentemente correto.
+- **Uma linha por competência.** Blocos de folha normal, PLR, 13º, histórico de 13º e folha suplementar da mesma competência são consolidados como `Unificado`. Valores diferentes da mesma verba ou base não são somados: permanecem em ocorrências ordenadas, exportadas como `Verba`, `Verba 2` e assim por diante.
 
 ## Privacidade, retenção e operação
 
