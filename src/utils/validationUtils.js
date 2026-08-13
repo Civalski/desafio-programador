@@ -98,6 +98,21 @@ export function hasOddPunches(punches) {
   return Array.isArray(punches) && punches.length % 2 !== 0;
 }
 
+export function isNonSequentialDate(previous, current) {
+  if (!isValidDateString(previous) || !isValidDateString(current)) return false;
+  const toDate = (value) => { const [day, month, year = '2024'] = value.split(/[/.-]/); return new Date(Number(year), Number(month) - 1, Number(day)); };
+  const expected = toDate(previous); expected.setDate(expected.getDate() + 1);
+  return expected.toDateString() !== toDate(current).toDateString();
+}
+
+export function isNonSequentialCompetency(previous, current) {
+  const valid = ({ month, year }) => /^(0[1-9]|1[0-2])$/.test(String(month || '')) && /^\d{4}$/.test(String(year || ''));
+  if (!valid(previous) || !valid(current)) return false;
+  const expected = new Date(Number(previous.year), Number(previous.month), 1);
+  const actual = new Date(Number(current.year), Number(current.month) - 1, 1);
+  return expected.getTime() !== actual.getTime();
+}
+
 /**
  * Realiza a auditoria global sobre o conjunto de competências (mês/ano) e holerites do documento.
  * @param {Object} dto Objeto DTO contendo { pages: [...] }
@@ -146,7 +161,7 @@ export function auditGlobalPayroll(dto = {}) {
     const monthNum = parseInt(month, 10);
     const yearNum = parseInt(year, 10);
 
-    const isMonthValid = !isNaN(monthNum) && monthNum >= 1 && monthNum <= 13;
+    const isMonthValid = !isNaN(monthNum) && monthNum >= 1 && monthNum <= 12;
     const isYearValid = !isNaN(yearNum) && yearNum >= 1990 && yearNum <= 2100;
 
     if (!isMonthValid || !isYearValid || month.includes('?') || year.includes('?')) {

@@ -14,6 +14,7 @@ RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/src ./src
 RUN groupadd --system app && useradd --system --gid app --create-home app
+RUN mkdir -p /app/data && chown -R app:app /app
 USER app
 EXPOSE 3000
 CMD ["node", "src/server.js"]

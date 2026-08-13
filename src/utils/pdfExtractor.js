@@ -50,7 +50,7 @@ export async function rasterizePdfPages(filePath, pageNumbers, options = {}) {
       dataUrl: `data:image/png;base64,${base64}`
     }]));
   } catch (subErr) {
-    console.warn(`⚠️ Rasterização via sub-processo falhou (${subErr.message}). Tentando rasterização em processo...`);
+      console.warn('Rasterização isolada falhou; tentando modo alternativo.');
     try {
       const { pdf } = await import('pdf-to-img');
       const document = await pdf(filePath, { scale: Number(options.scale ?? 4) });
@@ -67,8 +67,8 @@ export async function rasterizePdfPages(filePath, pageNumbers, options = {}) {
       }
       return outputMap;
     } catch (inProcErr) {
-      console.error(`❌ Falha na rasterização em processo do PDF (${filePath}):`, inProcErr.message);
-      throw new Error(`Falha ao rasterizar páginas do PDF de imagem: ${inProcErr.message}`);
+      console.error('Falha ao rasterizar páginas do PDF.');
+      throw new Error('Falha ao rasterizar páginas do PDF de imagem.');
     }
   }
 }
@@ -339,5 +339,4 @@ export async function extractPayrollLocalPdf(filePath, options = {}) {
 
   return { pages };
 }
-
 

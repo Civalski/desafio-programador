@@ -12,7 +12,6 @@ export function listInputDocuments() {
     exists: fs.existsSync(baseDir),
     categories: {
       payroll: [],
-      time_card: [],
       other: []
     }
   };
@@ -28,7 +27,7 @@ export function listInputDocuments() {
     for (const item of items) {
       const fullPath = path.join(dir, item.name);
       if (item.isDirectory()) {
-        const subCat = item.name === 'payroll' ? 'payroll' : (item.name === 'time_card' ? 'time_card' : category);
+        const subCat = item.name === 'payroll' ? 'payroll' : category;
         readDirRecursive(fullPath, subCat);
       } else if (item.isFile() && item.name.toLowerCase().endsWith('.pdf')) {
         const targetCategory = result.categories[category] ? category : 'other';

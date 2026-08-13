@@ -1,7 +1,7 @@
 /**
- * Módulo determinístico para análise de densidade de texto por página PDF.
- * Permite selecionar a estratégia ideal de prompts (Single-Pass vs Multi-Pass)
- * para otimizar consumo de tokens e chamadas de API sem perder precisão.
+ * MÃ³dulo determinÃ­stico para anÃ¡lise de densidade de texto por pÃ¡gina PDF.
+ * Permite selecionar a estratÃ©gia ideal de prompts (Single-Pass vs Multi-Pass)
+ * para otimizar consumo de tokens e chamadas de API sem perder precisÃ£o.
  */
 
 export function analyzePageDensity(pageContent = []) {
@@ -33,11 +33,11 @@ export function analyzePageDensity(pageContent = []) {
 }
 
 /**
- * Seleciona a estratégia de extração com base nas métricas da página.
+ * Seleciona a estratÃ©gia de extraÃ§Ã£o com base nas mÃ©tricas da pÃ¡gina.
  * 
- * @param {Object} density Métricas calculadas por analyzePageDensity
+ * @param {Object} density MÃ©tricas calculadas por analyzePageDensity
  * @param {boolean} isFicha Indica se o documento foi identificado como Ficha Financeira
- * @returns {'FICHA_BLOCK' | 'VISION_SINGLE_PASS' | 'SINGLE_PASS' | 'DUAL_PASS'} Estratégia de extração recomendada
+ * @returns {'FICHA_BLOCK' | 'VISION_SINGLE_PASS' | 'SINGLE_PASS' | 'DUAL_PASS'} EstratÃ©gia de extraÃ§Ã£o recomendada
  */
 export function selectExtractionStrategy(density, isFicha = false) {
   if (isFicha) {
@@ -48,8 +48,8 @@ export function selectExtractionStrategy(density, isFicha = false) {
     return 'VISION_SINGLE_PASS';
   }
 
-  // Documentos pequenos/médios ou simples (< 1500 chars ou < 180 elementos)
-  // podem ser extraídos perfeitamente com 1 única chamada (Single-Pass)
+  // Documentos pequenos/mÃ©dios ou simples (< 1500 chars ou < 180 elementos)
+  // podem ser extraÃ­dos perfeitamente com 1 Ãºnica chamada (Single-Pass)
   if (density.charCount < 1500 || density.elementCount < 180 || density.isSparse) {
     return 'SINGLE_PASS';
   }
@@ -58,10 +58,3 @@ export function selectExtractionStrategy(density, isFicha = false) {
   return 'DUAL_PASS';
 }
 
-/**
- * Time-card pages use vision only when their text layer is not usable.
- */
-export function selectTimeCardExtractionStrategy(density = {}) {
-  if (density.isScanned || density.charCount < 50) return 'VISION_SINGLE_PASS';
-  return density.charCount > 2500 ? 'DUAL_PASS' : 'SINGLE_PASS';
-}

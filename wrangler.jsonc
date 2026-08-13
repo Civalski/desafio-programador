@@ -10,5 +10,12 @@
       "database_id": "81a598fe-870c-4d0c-b83f-8fe5f343d0e2",
       "migrations_dir": "migrations"
     }
-  ]
+  ],
+  "r2_buckets": [
+    {
+      "binding": "DOCUMENTS",
+      "bucket_name": "quick-filler-documents"
+    }
+  ],
+  "triggers": { "crons": ["0 3 * * *"] }
 }

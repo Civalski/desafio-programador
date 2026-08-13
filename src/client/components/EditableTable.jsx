@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
+import { isNonSequentialDate, isNonSequentialCompetency } from '../../utils/validationUtils.js';
 
 export function EditableTable({ data, tipo, onChangeData }) {
   const [viewMode, setViewMode] = useState('grid'); // 'grid' (Excel Planilha Grid) ou 'list' (Lista Detalhada)
+  const [timeCardCurrentPage, setTimeCardCurrentPage] = useState(1);
 
   if (!data || !data.pages || data.pages.length === 0) {
     return (
@@ -185,9 +187,12 @@ export function EditableTable({ data, tipo, onChangeData }) {
                       const hasUncertainty =
                         (p.fields || []).some((f) => f.value?.includes('?') || f.label?.includes('?')) ||
                         (p.bases || []).some((b) => b.value?.includes('?') || b.label?.includes('?'));
+                      const prior = pages.slice(0, pIdx).reverse().find(candidate => candidate.month && candidate.year);
+                      const nonSequential = prior && isNonSequentialCompetency(prior, p);
+                      const empty = !(p.fields || []).length && !(p.bases || []).length && !p.month && !p.year;
 
                       return (
-                        <tr key={`p-row-${pIdx}`} className={hasUncertainty ? 'row-warning' : ''}>
+                        <tr key={`p-row-${pIdx}`} className={nonSequential ? 'row-danger' : (hasUncertainty || empty ? 'row-warning' : '')}>
                           <td style={{ textAlign: 'center', fontWeight: 600, color: 'var(--text-muted)' }}>
                             {p.page || pIdx + 1}
                           </td>
@@ -349,11 +354,15 @@ export function EditableTable({ data, tipo, onChangeData }) {
   }
 
   // --- RENDERIZADOR DE CARTÃO DE PONTO ---
-  const page = data.pages[0];
-  const days = page.days || [];
+  const days = data.pages.flatMap((page, pageIndex) => (page.days || []).map((day, dayIndex) => ({ day, page, pageIndex, dayIndex })));
+  const timeCardPageSize = 25;
+  const timeCardTotalPages = Math.max(1, Math.ceil(days.length / timeCardPageSize));
+  const activeTimeCardPage = Math.min(timeCardCurrentPage, timeCardTotalPages);
+  const visibleDays = days.slice((activeTimeCardPage - 1) * timeCardPageSize, activeTimeCardPage * timeCardPageSize);
 
-  const handlePunchChange = (dayIndex, punchIndex, val) => {
-    const updatedDays = [...days];
+  const handlePunchChange = (pageIndex, dayIndex, punchIndex, val) => {
+    const page = data.pages[pageIndex];
+    const updatedDays = [...(page.days || [])];
     const day = { ...updatedDays[dayIndex] };
     const punches = [...day.punches];
     punches[punchIndex] = { ...punches[punchIndex], time_hhmm: val, time_raw: val };
@@ -361,16 +370,17 @@ export function EditableTable({ data, tipo, onChangeData }) {
     updatedDays[dayIndex] = day;
 
     const updatedPages = [...data.pages];
-    updatedPages[0] = { ...page, days: updatedDays };
+    updatedPages[pageIndex] = { ...page, days: updatedDays };
     onChangeData({ ...data, pages: updatedPages });
   };
 
-  const handleDateChange = (dayIndex, val) => {
-    const updatedDays = [...days];
+  const handleDateChange = (pageIndex, dayIndex, val) => {
+    const page = data.pages[pageIndex];
+    const updatedDays = [...(page.days || [])];
     updatedDays[dayIndex] = { ...updatedDays[dayIndex], date_raw: val };
 
     const updatedPages = [...data.pages];
-    updatedPages[0] = { ...page, days: updatedPages };
+    updatedPages[pageIndex] = { ...page, days: updatedDays };
     onChangeData({ ...data, pages: updatedPages });
   };
 
@@ -378,9 +388,14 @@ export function EditableTable({ data, tipo, onChangeData }) {
     <div className="panel">
       <div className="panel-header">
         <div className="panel-title">Revisor de Cartão de Ponto</div>
-        <span style={{ fontSize: '0.8rem', color: 'var(--text-subtle)', fontWeight: 500 }}>
-          {days.length} Dias Mapeados
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <span style={{ fontSize: '0.8rem', color: 'var(--text-subtle)', fontWeight: 500 }}>{days.length} Dias Mapeados</span>
+          {days.length > timeCardPageSize && <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <button type="button" className="radio-btn" disabled={activeTimeCardPage === 1} onClick={() => setTimeCardCurrentPage(activeTimeCardPage - 1)}>Anterior</button>
+            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Página {activeTimeCardPage} de {timeCardTotalPages}</span>
+            <button type="button" className="radio-btn" disabled={activeTimeCardPage === timeCardTotalPages} onClick={() => setTimeCardCurrentPage(activeTimeCardPage + 1)}>Próxima</button>
+          </div>}
+        </div>
       </div>
 
       <div className="table-container">
@@ -393,7 +408,8 @@ export function EditableTable({ data, tipo, onChangeData }) {
             </tr>
           </thead>
           <tbody>
-            {days.map((day, dIdx) => {
+            {visibleDays.map(({ day, page, pageIndex, dayIndex }, visibleIndex) => {
+              const dIdx = (activeTimeCardPage - 1) * timeCardPageSize + visibleIndex;
               const punches = day.punches || [];
               const isOdd = punches.length % 2 !== 0;
               const hasUncertainty = day.date_raw?.includes('?') || punches.some(p => p.time_hhmm?.includes('?'));
@@ -401,8 +417,13 @@ export function EditableTable({ data, tipo, onChangeData }) {
               let rowClass = '';
               let alertText = 'OK';
 
-              if (isOdd) {
+              const previous = days[dIdx - 1]?.day;
+              const nonSequential = previous && isNonSequentialDate(previous.date_raw, day.date_raw);
+              if (nonSequential) {
                 rowClass = 'row-danger';
+                alertText = 'Data não sequencial';
+              } else if (isOdd) {
+                rowClass = 'row-warning';
                 alertText = 'Batida Ímpar';
               } else if (hasUncertainty) {
                 rowClass = 'row-warning';
@@ -415,7 +436,7 @@ export function EditableTable({ data, tipo, onChangeData }) {
                     <input 
                       className="input-cell"
                       value={day.date_raw || ''} 
-                      onChange={(e) => handleDateChange(dIdx, e.target.value)}
+                      onChange={(e) => handleDateChange(pageIndex, dayIndex, e.target.value)}
                     />
                   </td>
                   <td>
@@ -429,7 +450,7 @@ export function EditableTable({ data, tipo, onChangeData }) {
                             className="input-cell"
                             style={{ width: '65px', textAlign: 'center' }}
                             value={punch.time_hhmm || punch.time_raw || ''} 
-                            onChange={(e) => handlePunchChange(dIdx, pIdx, e.target.value)}
+                            onChange={(e) => handlePunchChange(pageIndex, dayIndex, pIdx, e.target.value)}
                           />
                         </div>
                       ))}

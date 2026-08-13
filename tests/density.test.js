@@ -8,24 +8,24 @@ import { config } from '../src/config/env.js';
 
 const pdfExtract = new PDFExtract();
 
-test('Análise de Densidade - Funções Unitárias', () => {
+test('AnÃ¡lise de Densidade - FunÃ§Ãµes UnitÃ¡rias', () => {
   const mockSparseContent = [{ str: 'Recibo', y: 10 }];
   const densitySparse = analyzePageDensity(mockSparseContent);
   assert.equal(densitySparse.charCount, 6);
   assert.equal(densitySparse.elementCount, 1);
   assert.equal(selectExtractionStrategy(densitySparse, false), 'VISION_SINGLE_PASS');
 
-  const mockDenseContent = Array(200).fill(0).map((_, i) => ({ str: `Linha de verba exemplo número ${i}`, y: i * 5 }));
+  const mockDenseContent = Array(200).fill(0).map((_, i) => ({ str: `Linha de verba exemplo nÃºmero ${i}`, y: i * 5 }));
   const densityDense = analyzePageDensity(mockDenseContent);
   assert.ok(densityDense.charCount > 1500);
   assert.equal(selectExtractionStrategy(densityDense, false), 'DUAL_PASS');
   assert.equal(selectExtractionStrategy(densityDense, true), 'FICHA_BLOCK');
 });
 
-test('Análise de Densidade em Documentos da Base (data_input)', async () => {
+test('AnÃ¡lise de Densidade em Documentos da Base (data_input)', async () => {
   const payrollDir = path.resolve(config.dataInputDir, 'payroll');
   if (!fs.existsSync(payrollDir)) {
-    console.log('⚠️ Pasta de entrada payroll não encontrada, pulando teste em arquivos físicos.');
+    console.log('âš ï¸ Pasta de entrada payroll nÃ£o encontrada, pulando teste em arquivos fÃ­sicos.');
     return;
   }
 
@@ -36,14 +36,14 @@ test('Análise de Densidade em Documentos da Base (data_input)', async () => {
     const filePath = path.join(payrollDir, file);
     const pdfRes = await new Promise(r => pdfExtract.extract(filePath, {}, (err, res) => r(res)));
 
-    console.log(`\n📄 Avaliando Estratégia de Densidade para: ${file}`);
+    console.log(`\nðŸ“„ Avaliando EstratÃ©gia de Densidade para: ${file}`);
     pdfRes.pages.forEach((page, idx) => {
       const density = analyzePageDensity(page.content);
       const strategy = selectExtractionStrategy(density, false);
-      console.log(`   Página ${idx + 1}: ${density.charCount} chars | ${density.elementCount} elementos | Estratégia: ${strategy}`);
+      console.log(`   PÃ¡gina ${idx + 1}: ${density.charCount} chars | ${density.elementCount} elementos | EstratÃ©gia: ${strategy}`);
       
       if (file.includes('payroll-04')) {
-        assert.equal(strategy, 'VISION_SINGLE_PASS', `Página de ${file} com baixa densidade deve usar SINGLE_PASS`);
+        assert.equal(strategy, 'VISION_SINGLE_PASS', `PÃ¡gina de ${file} com baixa densidade deve usar SINGLE_PASS`);
       }
     });
   }

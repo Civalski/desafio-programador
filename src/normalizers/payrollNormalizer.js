@@ -147,7 +147,7 @@ export function normalizePayrollResponse(rawData, options = {}) {
       if (!label && !value) return;
 
       // Verifica se deve ir para bases[] ou fields[]
-      const isBaseItem = item.isBase || BASE_LABEL_REGEX.test(label);
+      const isBaseItem = item.isBase || BASE_LABEL_REGEX.test(normalizeLabelKey(label));
 
       if (isBaseItem) {
         bases.push({

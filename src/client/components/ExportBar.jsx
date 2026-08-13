@@ -18,10 +18,26 @@ export function ExportBar({ jobId, onSave, onReset }) {
     }
   };
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (!jobId) return;
-    const url = `/api/transcricoes/${jobId}/planilha?formato=${formato}`;
-    window.open(url, '_blank');
+    setIsSaving(true);
+    setMessage('');
+    try {
+      await onSave();
+      const response = await fetch(`/api/transcricoes/${jobId}/planilha?formato=${formato}`);
+      if (!response.ok) throw new Error('Não foi possível gerar a planilha.');
+      const blob = await response.blob();
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `transcricao.${formato}`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+      setMessage('Alterações salvas e planilha baixada.');
+    } catch (err) {
+      setMessage(`Erro ao baixar: ${err.message}`);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -55,7 +71,7 @@ export function ExportBar({ jobId, onSave, onReset }) {
           {isSaving ? 'Salvando...' : 'Salvar Alterações'}
         </button>
 
-        <button className="btn-success" onClick={handleDownload}>
+        <button className="btn-success" onClick={handleDownload} disabled={isSaving}>
           Baixar Planilha
         </button>
       </div>

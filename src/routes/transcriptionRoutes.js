@@ -5,22 +5,16 @@ import { waitUntil } from '@vercel/functions';
 import { transcriptionStore } from '../services/transcriptionStore.js';
 import { aiProviderService } from '../services/aiProvider.js';
 import { generateExport } from '../utils/exportUtils.js';
-import { isTimeCardEnabled } from '../config/features.js';
+import { PDFExtract } from 'pdf.js-extract';
+
+const pdfExtract = new PDFExtract();
+const isReadablePdf = async filePath => { try { await new Promise((resolve, reject) => pdfExtract.extract(filePath, {}, error => error ? reject(error) : resolve())); return true; } catch { return false; } };
 
 /**
  * Registra as rotas da API HTTP no Fastify.
  * @param {import('fastify').FastifyInstance} fastify 
  */
 export async function transcriptionRoutes(fastify) {
-  // POST /api/login - Validação simples de senha
-  fastify.post('/api/login', async (request, reply) => {
-    const { password } = request.body || {};
-    if (password === 'abacate123') {
-      return reply.status(200).send({ ok: true, message: 'Autenticado com sucesso' });
-    }
-    return reply.status(401).send({ ok: false, erro: 'Senha incorreta. Tente novamente.' });
-  });
-
   // 5. GET /healthz - Endpoint de Healthcheck
   fastify.get('/healthz', async (request, reply) => {
     return reply.status(200).send({ status: 'ok' });
@@ -38,12 +32,14 @@ export async function transcriptionRoutes(fastify) {
     let fileBuffer = null;
     let fileName = 'upload.pdf';
     let tipo = null;
+    let mimeType = '';
 
     for await (const part of parts) {
       if (part.type === 'file') {
         if (part.fieldname === 'arquivo') {
           fileBuffer = await part.toBuffer();
           fileName = part.filename || 'upload.pdf';
+          mimeType = part.mimetype || '';
         }
       } else if (part.type === 'field') {
         if (part.fieldname === 'tipo') {
@@ -53,7 +49,7 @@ export async function transcriptionRoutes(fastify) {
     }
 
     // Validação dos parâmetros obrigatórios
-    if (!tipo || (tipo !== 'cartao-ponto' && tipo !== 'holerite')) {
+    if (tipo !== 'holerite') {
       return reply.status(400).send({
         erro: 'O parâmetro "tipo" é obrigatório e deve ser "cartao-ponto" ou "holerite"'
       });
@@ -72,24 +68,37 @@ export async function transcriptionRoutes(fastify) {
     }
 
     // Cria o trabalho de transcrição no estado 'processando'
-    const job = await transcriptionStore.createJob(tipo);
+    if (mimeType !== 'application/pdf' || !fileBuffer.subarray(0, 5).equals(Buffer.from('%PDF-'))) {
+      return reply.status(400).send({ erro: 'O arquivo deve ser um PDF válido (MIME application/pdf e assinatura %PDF-).' });
+    }
+    const job = await transcriptionStore.createJob(tipo, { name: fileName, size: fileBuffer.length });
+    await transcriptionStore.saveDocument(job, fileBuffer);
 
     // Salva o buffer no sistema de arquivos temporário do sistema operacional (fora da pasta do projeto)
     const tempDir = os.tmpdir();
-    const tempFilePath = path.join(tempDir, `quick_filler_${job.id}_${fileName}`);
+    const tempFilePath = path.join(tempDir, `quick_filler_${job.id}.pdf`);
     fs.writeFileSync(tempFilePath, fileBuffer);
+    if (!await isReadablePdf(tempFilePath)) {
+      fs.unlinkSync(tempFilePath);
+      return reply.status(400).send({ erro: 'O PDF está corrompido ou não pôde ser lido.' });
+    }
 
-    const processJob = async () => {
+    const processJob = async (automaticRetry = false) => {
       try {
-        const docTypeMapping = tipo === 'cartao-ponto' ? 'time_card' : 'payroll';
+        const docTypeMapping = 'payroll';
         const onProgress = async (progUpdate) => transcriptionStore.updateJobProgress(job.id, progUpdate);
         const onPageCompleted = async (page) => transcriptionStore.savePageResult(job.id, page.page, page);
-        const parsedResult = await aiProviderService.parseDocument(tempFilePath, docTypeMapping, { onProgress, onPageCompleted });
+        const completedPageNumbers = await transcriptionStore.getCompletedPageNumbers(job.id);
+        const parsedResult = await aiProviderService.parseDocument(tempFilePath, docTypeMapping, { onProgress, onPageCompleted, completedPageNumbers });
 
         // Se o resultado for válido, conclui o job
         await transcriptionStore.completeJob(job.id, parsedResult);
       } catch (error) {
-        console.error(`❌ Erro no processamento assíncrono do job ${job.id}:`, error);
+        request.log.error({ err: error, jobId: job.id }, 'Falha no processamento do documento');
+        if (!automaticRetry) {
+          await transcriptionStore.startRetry(job.id, 'Falha transitória; retomando páginas pendentes...');
+          return processJob(true);
+        }
         await transcriptionStore.failJob(job.id, error.message || 'Falha no processamento do documento');
       } finally {
         // Limpa o arquivo temporário
@@ -113,6 +122,47 @@ export async function transcriptionRoutes(fastify) {
     return reply.status(202).send({
       id: job.id
     });
+  });
+
+  fastify.get('/api/transcricoes', async (_request, reply) => {
+    return reply.send({ items: await transcriptionStore.listJobs() });
+  });
+
+  fastify.get('/api/transcricoes/:id/arquivo', async (request, reply) => {
+    const job = await transcriptionStore.getJob(request.params.id);
+    if (!job) return reply.status(404).send({ erro: 'Transcrição não encontrada' });
+    try {
+      const content = await transcriptionStore.getDocument(job);
+      return reply.type('application/pdf').header('content-disposition', `inline; filename="${(job.fileName || 'documento.pdf').replaceAll('"', '')}"`).send(content);
+    } catch { return reply.status(404).send({ erro: 'PDF original não está mais disponível.' }); }
+  });
+
+  fastify.post('/api/transcricoes/:id/retomar', async (request, reply) => {
+    const job = await transcriptionStore.getJob(request.params.id);
+    if (!job) return reply.status(404).send({ erro: 'Transcrição não encontrada' });
+    if (job.status === 'processando') return reply.status(202).send({ id: job.id, status: job.status });
+    let content;
+    try { content = await transcriptionStore.getDocument(job); } catch { return reply.status(409).send({ erro: 'O PDF original não está disponível para retomada.' }); }
+    const resumed = await transcriptionStore.startRetry(job.id);
+    const tempFilePath = path.join(os.tmpdir(), `quick_filler_${resumed.id}_resume.pdf`);
+    fs.writeFileSync(tempFilePath, content);
+    const processPromise = (async () => {
+      try {
+        const mapping = 'payroll';
+        const completedPageNumbers = await transcriptionStore.getCompletedPageNumbers(resumed.id);
+        const result = await aiProviderService.parseDocument(tempFilePath, mapping, { completedPageNumbers, onProgress: update => transcriptionStore.updateJobProgress(resumed.id, update), onPageCompleted: page => transcriptionStore.savePageResult(resumed.id, page.page, page) });
+        await transcriptionStore.completeJob(resumed.id, result);
+      } catch (error) { await transcriptionStore.failJob(resumed.id, error.message || 'Falha ao retomar auditoria'); }
+      finally { try { fs.unlinkSync(tempFilePath); } catch (_) {} }
+    })();
+    if (process.env.VERCEL) waitUntil(processPromise); else setImmediate(() => processPromise);
+    return reply.status(202).send({ id: resumed.id, status: 'processando' });
+  });
+
+  fastify.delete('/api/transcricoes/:id', async (request, reply) => {
+    const job = await transcriptionStore.deleteJob(request.params.id);
+    if (!job) return reply.status(404).send({ erro: 'Transcrição não encontrada' });
+    return reply.status(204).send();
   });
 
   // 2. GET /api/transcricoes/:id - Consulta de status e resultado

@@ -5,8 +5,9 @@ import { EditableTable } from './components/EditableTable.jsx';
 import { ExportBar } from './components/ExportBar.jsx';
 import { TranscriptionProgress } from './components/TranscriptionProgress.jsx';
 import { LoginForm } from './components/LoginForm.jsx';
+import { SavedExtractions } from './components/SavedExtractions.jsx';
 
-const requiresLogin = import.meta.env.VITE_REQUIRE_LOGIN === 'true';
+const requiresLogin = false;
 
 async function readJsonResponse(response, fallbackMessage) {
   const contentType = response.headers.get('content-type') || '';
@@ -32,6 +33,8 @@ export default function App() {
   const [jobProgress, setJobProgress] = useState(null);
   const [extractedData, setExtractedData] = useState(null);
   const [errorMessage, setErrorMessage] = useState('');
+  const [screen, setScreen] = useState('main');
+  const [savedPdfUrl, setSavedPdfUrl] = useState('');
 
   // Polling de status do job assíncrono
   useEffect(() => {
@@ -137,7 +140,11 @@ export default function App() {
     setJobProgress(null);
     setExtractedData(null);
     setErrorMessage('');
+    setSavedPdfUrl('');
+    setScreen('main');
   };
+  const openSaved = async item => { const res = await fetch(`/api/transcricoes/${item.id}`); if (!res.ok) return setErrorMessage('Não foi possível abrir a auditoria.'); const data = await res.json(); setJobId(data.id); setTipo(data.tipo); setExtractedData(data.value); setUploadedFile(null); setSavedPdfUrl(`/api/transcricoes/${item.id}/arquivo`); setJobStatus(data.status); setScreen('main'); };
+  const resumeSaved = async item => { const res = await fetch(`/api/transcricoes/${item.id}/retomar`, { method: 'POST' }); if (!res.ok) return setErrorMessage('Não foi possível retomar a auditoria.'); const data = await res.json(); setJobId(data.id); setTipo(item.tipo); setUploadedFile(null); setSavedPdfUrl(`/api/transcricoes/${item.id}/arquivo`); setJobStatus('processando'); setScreen('main'); };
 
   const handleLogout = () => {
     sessionStorage.removeItem('quick_filler_authenticated');
@@ -147,13 +154,15 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <header className="app-header">
+      {false && <header className="app-header">
         <div className="app-brand">
           <span className="app-logo">QUICK FILLER</span>
           <span className="badge-mock">
             {isAuthenticated ? '🔒 Acesso Autenticado' : '🔑 Login Requerido'}
           </span>
         </div>
+
+        {isAuthenticated && <button className="btn-secondary" onClick={() => setScreen(screen === 'saved' ? 'main' : 'saved')}>Extrações salvas</button>}
 
         {requiresLogin && isAuthenticated && (
           <button 
@@ -169,12 +178,13 @@ export default function App() {
             Sair
           </button>
         )}
-      </header>
+      </header>}
 
       {requiresLogin && !isAuthenticated ? (
         <LoginForm onLoginSuccess={() => setIsAuthenticated(true)} />
       ) : (
-        <main className="container" style={{ paddingTop: '2.5rem' }}>
+        <main className="container">
+          {screen === 'saved' ? <SavedExtractions onOpen={openSaved} onResume={resumeSaved} onBack={() => setScreen('main')} /> : <>
           {jobStatus === 'idle' && (
             <UploadZone onUpload={handleUpload} isProcessing={false} />
           )}
@@ -198,7 +208,7 @@ export default function App() {
           {jobStatus === 'concluido' && (
             <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
               <div className="split-view">
-                <PdfViewer file={uploadedFile} />
+                <PdfViewer file={uploadedFile} pdfUrl={savedPdfUrl} />
                 <EditableTable 
                   data={extractedData} 
                   tipo={tipo} 
@@ -212,10 +222,9 @@ export default function App() {
                 onReset={handleReset} 
               />
             </div>
-          )}
+          )}</>}
         </main>
       )}
     </div>
   );
 }
-

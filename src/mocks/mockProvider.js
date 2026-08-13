@@ -6,7 +6,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const PAYROLL_SNAPSHOT_PATH = path.join(__dirname, 'payroll-snapshot.json');
-const TIMECARD_SNAPSHOT_PATH = path.join(__dirname, 'timecard-snapshot.json');
 
 /**
  * Carregador de mocks e snapshots locais para desenvolvimento sem uso de cota.
