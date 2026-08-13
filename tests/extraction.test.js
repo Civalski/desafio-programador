@@ -3,11 +3,12 @@ import assert from 'node:assert/strict';
 import { PDFExtract } from 'pdf.js-extract';
 import { analyzePageDensity, selectExtractionStrategy } from '../src/utils/densityAnalyzer.js';
 import { listInputDocuments } from '../src/utils/inputDocuments.js';
+import path from 'node:path';
 
 const pdfExtract = new PDFExtract();
 
 test('Holerites de exemplo podem ser preparados para envio à OpenAI', async () => {
-  const docs = listInputDocuments().categories.payroll;
+  const docs = listInputDocuments(path.resolve('exemplos')).categories.payroll;
   assert.equal(docs.length, 4);
 
   for (const doc of docs) {

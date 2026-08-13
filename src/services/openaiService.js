@@ -6,8 +6,44 @@ import { rasterizePdfPages } from '../utils/pdfExtractor.js';
 import { detectFichaFinanceira, segmentAllMonthBlocks } from '../utils/fichaFinanceiraSegmenter.js';
 import { analyzePageDensity, selectExtractionStrategy } from '../utils/densityAnalyzer.js';
 import { PDFExtract } from 'pdf.js-extract';
+import { buildPayrollInventory, planPayrollPromptBatches, auditPayrollCoverage, reconcilePayrollExtractions } from '../utils/payrollInventory.js';
+import { extractPayrollLocal } from '../utils/localPayrollExtractor.js';
+import { recognizePayrollImage } from '../utils/localOcr.js';
+import { catalogHintsForLabels } from '../utils/payrollCatalog.js';
 
 const pdfExtract = new PDFExtract();
+
+async function mapWithConcurrency(items, limit, mapper) {
+  const results = new Array(items.length);
+  let cursor = 0;
+  async function worker() {
+    while (cursor < items.length) {
+      const index = cursor++;
+      results[index] = await mapper(items[index], index);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
+const PROMPT_IDENTITY_AGENT = `Você extrai somente identificação e competência de holerites brasileiros.
+Confirme os valores encontrados localmente contra o texto. Não extraia verbas. Não invente.
+Retorne JSON: {"competency":{"month":"MM","year":"YYYY","paymentDate":null},"company":{},"employee":{},"bankInfo":{}}.`;
+
+const PROMPT_FIELDS_AGENT = `Você é o agente de verbas de um pipeline auditável de holerites.
+Extraia exatamente todas as linhas solicitadas, inclusive valores 0,00. Preserve o rótulo original.
+reference é quantidade/horas/percentual e value é o valor monetário. Não inclua bases ou totais.
+FGTS meramente informativo/patronal não é desconto. Não invente linhas ausentes.
+Retorne somente JSON: {"fields":[{"code":"","label":"","reference":"","value":"","type":"provento|desconto"}]} .`;
+
+const PROMPT_SUMMARY_AGENT = `Você é o agente de rodapé de holerites brasileiros.
+Extraia somente bases, totalizadores, quantidades, percentuais e valores patronais/informativos visíveis.
+FGTS empresa/depósito é informativo, não desconto. Não repita verbas e não invente.
+Retorne somente JSON: {"bases":[{"label":"","value":"","kind":"base|quantidade|percentual|informativo_patronal"}],"totals":{"totalAdditions":null,"totalDeductions":null,"netValue":null}}.`;
+
+const PROMPT_AUDIT_AGENT = `Você é o agente final de recuperação de cobertura. Receba apenas lacunas apontadas pela auditoria e a evidência correspondente.
+Retorne somente os itens realmente visíveis, preservando rótulo, código e valor. Não invente.
+JSON: {"fields":[],"bases":[],"totals":{}}.`;
 
 /**
  * PROMPT UNIFICADO: Extrai identificaÃ§Ã£o + competÃªncia + verbas em uma Ãºnica chamada.
@@ -355,6 +391,102 @@ export class OpenAIService {
     });
   }
 
+  async runHybridPageAgents(pageObj, options = {}) {
+    const isVision = Boolean(options.isVision);
+    const imageDataUrl = options.imageDataUrl || null;
+    let sourceText = pageObj.text || '';
+    let ocr = null;
+    if (isVision && imageDataUrl) {
+      try {
+        ocr = await recognizePayrollImage(imageDataUrl);
+        sourceText = ocr.text || sourceText;
+      } catch (error) {
+        console.warn(JSON.stringify({ event: 'local_ocr_failed', page: pageObj.pageNum, reason: error.message }));
+      }
+    }
+
+    const evidenceType = isVision ? 'ocr' : 'text';
+    const local = extractPayrollLocal(sourceText, { sourcePage: pageObj.pageNum, evidenceType });
+    const inventory = buildPayrollInventory(sourceText, { sourcePage: pageObj.pageNum, evidenceType });
+    const plan = planPayrollPromptBatches(inventory, { maxCodesPerPrompt: config.payrollBatchSize });
+    const hints = catalogHintsForLabels([
+      ...inventory.expectedCodes.map(item => item.label),
+      ...inventory.expectedSummaryLabels
+    ]);
+    let executedPrompts = 0;
+
+    const runJson = async (prompt, payload, visual = false) => {
+      executedPrompts++;
+      const content = visual
+        ? [{ type: 'text', text: payload }, { type: 'image_url', image_url: { url: imageDataUrl, detail: 'high' } }]
+        : payload;
+      const raw = await this.generateCompletionWithFallback([{ role: 'system', content: prompt }, { role: 'user', content }]);
+      try { return JSON.parse(raw); } catch { return {}; }
+    };
+
+    const identityPromise = runJson(PROMPT_IDENTITY_AGENT, `RESULTADO LOCAL:\n${JSON.stringify(inferCompetencyFromText(sourceText) || {})}\n\nTEXTO:\n${sourceText.slice(0, 5000)}`);
+    const summaryPromise = runJson(PROMPT_SUMMARY_AGENT, `RESULTADO LOCAL:\n${JSON.stringify({ bases: local.bases, totals: local.totals })}\nCATEGORIAS CANDIDATAS:\n${JSON.stringify(hints)}\n\nTEXTO:\n${sourceText}`);
+
+    const targets = plan.fieldBatches.length
+      ? plan.fieldBatches.map(batch => ({ codes: batch, lines: batch.map(item => item.line).filter(Boolean) }))
+      : plan.lineBatches.map(lines => ({ codes: [], lines: lines.map(item => item.line) }));
+    const fieldResultsPromise = mapWithConcurrency(targets, config.openaiConcurrency, target => runJson(
+      PROMPT_FIELDS_AGENT,
+      `ALVO DESTE LOTE:\n${JSON.stringify(target.codes.map(({ code, label, category }) => ({ code, label, category })))}\nRESULTADO LOCAL DO LOTE:\n${JSON.stringify(local.fields.filter(item => !target.codes.length || target.codes.some(code => code.code === item.code)))}\nEVIDÊNCIA:\n${target.lines.join('\n')}`
+    ));
+
+    const [identity, summary, fieldResults] = await Promise.all([identityPromise, summaryPromise, fieldResultsPromise]);
+    let ai = {
+      ...identity,
+      fields: fieldResults.flatMap(result => result?.fields || []),
+      bases: summary?.bases || [], totals: summary?.totals || {}
+    };
+    let reconciled = reconcilePayrollExtractions(local, ai, { sourcePage: pageObj.pageNum, evidenceType: 'ai' });
+    let audit = auditPayrollCoverage(inventory, reconciled);
+    const ocrNeedsVisualReview = isVision && (!ocr || ocr.confidence < config.ocrMinimumConfidence);
+    if (ocrNeedsVisualReview) {
+      audit = { ...audit, valid: false, warnings: [...audit.warnings, `OCR local com confiança insuficiente (${Math.round((ocr?.confidence || 0) * 100)}%).`] };
+    }
+    let didRecovery = false;
+
+    if (!audit.valid) {
+      didRecovery = true;
+      const missingLines = audit.missingCodes.map(item => item.line).filter(Boolean);
+      const payload = `LACUNAS:\n${JSON.stringify({ missingCodes: audit.missingCodes, missingSummaryLabels: audit.missingSummaryLabels })}\nRESULTADO ATUAL:\n${JSON.stringify(reconciled)}\nEVIDÊNCIA:\n${missingLines.join('\n') || sourceText}`;
+      const recovery = await runJson(PROMPT_AUDIT_AGENT, payload, isVision && Boolean(imageDataUrl));
+      ai = reconcilePayrollExtractions(ai, recovery, { sourcePage: pageObj.pageNum, evidenceType: isVision ? 'vision' : 'ai_recovery' });
+      reconciled = reconcilePayrollExtractions(local, ai, { sourcePage: pageObj.pageNum, evidenceType: 'ai' });
+      audit = auditPayrollCoverage(inventory, reconciled);
+    }
+
+    const conflicts = reconciled.conflicts || [];
+    const totalValues = Object.values(reconciled.totals || {}).filter(value => value !== null && value !== undefined && value !== '');
+    const finalWarnings = [...audit.warnings];
+    if (conflicts.length) finalWarnings.push(`${conflicts.length} conflito(s) entre evidências exigem revisão.`);
+    if (totalValues.length === 3 && !hasConsistentPayrollTotals(reconciled.totals)) finalWarnings.push('Total de proventos menos descontos não corresponde ao valor líquido.');
+    audit = { ...audit, valid: audit.valid && finalWarnings.length === 0, warnings: finalWarnings };
+
+    const competency = identity?.competency || {};
+    const inferred = inferCompetencyFromText(sourceText) || {};
+    const localCount = local.fields.length + local.bases.length + Object.values(local.totals).filter(Boolean).length;
+    return {
+      page: pageObj.pageNum,
+      resultKey: `page:${pageObj.pageNum}`,
+      month: competency.month || inferred.month || '', year: competency.year || inferred.year || '',
+      paymentDate: competency.paymentDate || null,
+      company: identity.company || null, employee: identity.employee || null, bankInfo: identity.bankInfo || null,
+      fields: reconciled.fields || [], bases: reconciled.bases || [], totals: reconciled.totals || {},
+      extraction: {
+        ...audit,
+        strategy: isVision ? 'LOCAL_OCR_AGENTIC_VISION' : 'LOCAL_TEXT_AGENTIC',
+        plannedPrompts: plan.plannedPrompts + (didRecovery ? 1 : 0), executedPrompts,
+        localItems: localCount, aiItems: (ai.fields || []).length + (ai.bases || []).length,
+        ocrConfidence: ocr?.confidence ?? null,
+        conflicts, sources: [...new Set([...(reconciled.fields || []), ...(reconciled.bases || [])].map(item => item.evidenceType).filter(Boolean))]
+      }
+    };
+  }
+
   /**
    * Envia o PDF de Holerite (Payroll) para a API da OpenAI e retorna o DTO normalizado.
    * Processa pÃ¡gina por pÃ¡gina para garantir 100% de cobertura sem omissÃ£o de verbas.
@@ -403,6 +535,15 @@ export class OpenAIService {
               try {
                 console.log(`ðŸ” [OpenAI] Extraindo bloco ${bIdx + 1}/${blocks.length}: CompetÃªncia ${block.month}/${block.year} (PÃ¡g ${block.pageNum})...`);
 
+                const hybrid = await this.runHybridPageAgents({ pageNum: block.pageNum, text: block.rawText, rawContent: block.items || [] });
+                const hybridBlockResult = { ...hybrid, blockIndex: block.blockIndex, resultKey: block.resultKey, month: block.month, year: block.year, extractionValidation: hybrid.extraction };
+                await onPageCompleted(hybridBlockResult);
+                completedBlocks++;
+                const hybridPct = Math.min(95, Math.round(10 + (completedBlocks / blocks.length) * 85));
+                onProgress({ current: completedBlocks, total: blocks.length, percentage: hybridPct, message: `Bloco ${completedBlocks} de ${blocks.length} concluído (${block.month}/${block.year})`, log: `Pipeline híbrido: ${hybridBlockResult.fields.length} verbas e ${hybridBlockResult.bases.length} bases.` });
+                return hybridBlockResult;
+
+                /* istanbul ignore next -- caminho legado preservado para rollback */
                 const completionJson = await this.generateCompletionWithFallback([
                   { role: 'system', content: PROMPT_FICHA_FINANCEIRA_BLOCK },
                   {
@@ -523,6 +664,23 @@ export class OpenAIService {
               const density = pageObj.density || analyzePageDensity(pageObj.rawContent);
               const strategy = selectExtractionStrategy(density, false);
               const isVision = strategy === 'VISION_SINGLE_PASS';
+              const hybridResult = await this.runHybridPageAgents(pageObj, {
+                isVision,
+                imageDataUrl: scannedImages.get(pageObj.pageNum)?.dataUrl
+              });
+              await onPageCompleted(hybridResult);
+              completedPages++;
+              const hybridPct = Math.min(95, Math.round(10 + (completedPages / totalPages) * 85));
+              onProgress({
+                current: completedPages,
+                total: totalPages,
+                percentage: hybridPct,
+                message: `Página ${completedPages} de ${totalPages} concluída`,
+                log: `Pipeline híbrido - Página ${pageObj.pageNum}: ${hybridResult.fields.length} verbas; cobertura ${(hybridResult.extraction.coverage * 100).toFixed(0)}%.`
+              });
+              return hybridResult;
+
+              /* istanbul ignore next -- pipeline legado mantido temporariamente como referência de rollback */
               let inputContent = isVision
                 ? [
                     { type: 'text', text: 'Analise esta imagem de holerite e retorne somente o JSON solicitado.' },

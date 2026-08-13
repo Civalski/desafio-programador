@@ -5,8 +5,7 @@ import { config } from '../config/env.js';
 /**
  * Utilitário para localizar e listar os documentos em exemplos/ sem realizar a leitura/OCR.
  */
-export function listInputDocuments() {
-  const baseDir = config.dataInputDir;
+export function listInputDocuments(baseDir = config.dataInputDir) {
   const result = {
     baseDir,
     exists: fs.existsSync(baseDir),

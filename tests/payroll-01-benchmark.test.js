@@ -2,11 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'path';
 import { parseGroundTruth, runBenchmark } from '../scripts/benchmark-payroll01.js';
-import { config } from '../src/config/env.js';
 
 test('Suíte de Benchmark - payroll-01.pdf vs Ground Truth Auditado', async () => {
   const gtPath = path.resolve('tests/fixtures/payroll-01-audit.txt');
-  const pdfPath = path.resolve(config.dataInputDir, 'holerite-1.pdf');
+  const pdfPath = path.resolve('exemplos', 'holerite-1.pdf');
 
   // 1. Carrega Ground Truth
   const gtBlocks = parseGroundTruth(gtPath);

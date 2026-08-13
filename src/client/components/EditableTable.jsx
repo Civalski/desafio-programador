@@ -193,8 +193,8 @@ export function EditableTable({ data, onChangeData }) {
                       });
 
                       const hasUncertainty =
-                        (p.fields || []).some((f) => f.value?.includes('?') || f.label?.includes('?')) ||
-                        (p.bases || []).some((b) => b.value?.includes('?') || b.label?.includes('?'));
+                        (p.fields || []).some((f) => f.conflict || f.value?.includes('?') || f.label?.includes('?')) ||
+                        (p.bases || []).some((b) => b.conflict || b.value?.includes('?') || b.label?.includes('?'));
                       const prior = pages.slice(0, pIdx).reverse().find(candidate => candidate.month && candidate.year);
                       const nonSequential = prior && isNonSequentialCompetency(prior, p);
                       const empty = !(p.fields || []).length && !(p.bases || []).length && !p.month && !p.year;
@@ -216,7 +216,7 @@ export function EditableTable({ data, onChangeData }) {
                           {verbaKeys.map((key, vIdx) => {
                             const fieldItem = fieldMap[key];
                             const val = fieldItem?.value || '';
-                            const isUncertain = val.includes('?');
+                            const isUncertain = Boolean(fieldItem?.conflict) || val.includes('?');
 
                             return (
                               <td key={`vcell-${pIdx}-${vIdx}`} className={isUncertain ? 'row-warning' : ''}>
@@ -233,7 +233,7 @@ export function EditableTable({ data, onChangeData }) {
                           {baseKeys.map((key, bIdx) => {
                             const baseItem = baseMap[key];
                             const val = baseItem?.value || '';
-                            const isUncertain = val.includes('?');
+                            const isUncertain = Boolean(baseItem?.conflict) || val.includes('?');
 
                             return (
                               <td key={`bcell-${pIdx}-${bIdx}`} className={isUncertain ? 'row-warning' : ''}>
@@ -281,7 +281,7 @@ export function EditableTable({ data, onChangeData }) {
                       </thead>
                       <tbody>
                         {fields.map((item, idx) => {
-                          const isUncertain = item.value?.includes('?') || item.label?.includes('?');
+                          const isUncertain = item.conflict || item.value?.includes('?') || item.label?.includes('?');
                           return (
                             <tr key={`field-${idx}`} className={isUncertain ? 'row-warning' : ''}>
                               <td>

@@ -4,6 +4,8 @@ import { buildPayrollInventory, planPayrollPromptBatches, auditPayrollCoverage, 
 import { normalizePayrollResponse } from '../src/normalizers/payrollNormalizer.js';
 import { exportToCsv } from '../src/utils/exportUtils.js';
 import { extractBlockDataLocal } from '../src/utils/fichaFinanceiraSegmenter.js';
+import { PAYROLL_CATALOG, classifyPayrollLabel } from '../src/utils/payrollCatalog.js';
+import { extractPayrollLocal } from '../src/utils/localPayrollExtractor.js';
 
 test('inventário exige códigos e campos de resumo visíveis', () => {
   const text = '10 Salário Base | 220,00 | 3.000,00\n91 INSS | 11,00 | 330,00\nREMUNERAÇÃO MÊS 3.000,00\nBASE DE CÁLCULO DO INSS 3.000,00\nTOTAL DESCONTOS 330,00';
@@ -18,9 +20,31 @@ test('inventário exige códigos e campos de resumo visíveis', () => {
 test('quantidade de prompts cresce conforme a quantidade de códigos do demonstrativo', () => {
   const sparse = planPayrollPromptBatches({ expectedCodes: Array.from({ length: 4 }, (_, index) => ({ code: String(index) })) });
   const dense = planPayrollPromptBatches({ expectedCodes: Array.from({ length: 24 }, (_, index) => ({ code: String(index) })) });
-  assert.equal(sparse.plannedPrompts, 2);
-  assert.equal(dense.plannedPrompts, 5);
+  assert.equal(sparse.plannedPrompts, 3);
+  assert.equal(dense.plannedPrompts, 6);
   assert.ok(dense.fieldBatches.every(batch => batch.length <= 6));
+});
+
+test('catálogo cobre as 47 famílias e preserva classificação de FGTS patronal', () => {
+  assert.equal(PAYROLL_CATALOG.length, 47);
+  assert.equal(classifyPayrollLabel('FGTS Empresa')?.kind, 'informativo_patronal');
+  assert.equal(classifyPayrollLabel('SALÁRIO BASE')?.category, 'remuneracao_principal');
+  assert.equal(classifyPayrollLabel('Alíquota IRRF')?.kind, 'percentual');
+});
+
+test('extrator local preserva zero, referência e totais sem transformar FGTS informativo em desconto', () => {
+  const result = extractPayrollLocal('001 Salário Base | 220,00 | 3.000,00 | 091 Hora Extra | 50% | 0,00\nFGTS EMPRESA 240,00\nTOTAL PROVENTOS 3.000,00\nTOTAL DESCONTOS 0,00\nVALOR LÍQUIDO 3.000,00', { sourcePage: 1 });
+  assert.equal(result.fields.length, 2);
+  assert.equal(result.fields[1].value, '0,00');
+  assert.equal(result.fields[0].reference, '220,00');
+  assert.equal(result.fields[1].reference, '50%');
+  assert.equal(result.totals.netValue, '3.000,00');
+  assert.equal(result.bases.find(item => item.label === 'FGTS EMPRESA')?.category, 'patronais_informativos');
+});
+
+test('planejador cria lotes de linhas quando o layout não possui códigos', () => {
+  const plan = planPayrollPromptBatches({ unresolvedLines: Array.from({ length: 13 }, (_, index) => ({ line: `Verba ${index} 1,00` })) });
+  assert.deepEqual(plan.lineBatches.map(batch => batch.length), [6, 6, 1]);
 });
 
 test('reconciliação preserva evidência determinística e completa lacunas da IA', () => {

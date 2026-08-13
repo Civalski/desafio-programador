@@ -6,7 +6,6 @@ import { transcriptionStore } from '../src/services/transcriptionStore.js';
 import { segmentAllMonthBlocks } from '../src/utils/fichaFinanceiraSegmenter.js';
 import { normalizePayrollResponse } from '../src/normalizers/payrollNormalizer.js';
 import { validateFichaExtraction } from '../src/services/openaiService.js';
-import { config } from '../src/config/env.js';
 
 test('persiste vários blocos da mesma página sem sobrescrever resultados', async () => {
   await transcriptionStore.clear();
@@ -43,7 +42,7 @@ test('validação detecta códigos e rodapé ausentes e aprova cobertura complet
 
 test('holerite-1 contém 30 blocos com chaves únicas antes da normalização', async () => {
   const pdfExtract = new PDFExtract();
-  const document = await pdfExtract.extract(path.resolve(config.dataInputDir, 'holerite-1.pdf'), {});
+  const document = await pdfExtract.extract(path.resolve('exemplos', 'holerite-1.pdf'), {});
   const blocks = segmentAllMonthBlocks(document.pages);
   const keys = blocks.map(block => `page:${block.pageNum}:block:${block.blockIndex}`);
   assert.equal(blocks.length, 30);

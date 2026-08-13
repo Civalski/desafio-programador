@@ -1,4 +1,5 @@
 import { normalizeLabelKey } from './labelNormalizer.js';
+import { classifyPayrollLabel } from './payrollCatalog.js';
 
 const MONEY = /-?\d{1,3}(?:\.\d{3})*,\d{2}|-?\d+[.,]\d{2}/g;
 const CODE_LABEL = /(?:^|\||\s{2,})\s*[-–]?\s*(\d{1,4})\s+([A-Za-zÀ-ÿ][^|\n]{1,60})/g;
@@ -30,6 +31,8 @@ export function buildPayrollInventory(text = '', metadata = {}) {
   const codes = [];
   const labels = [];
   const expectedSummaryLabels = [];
+  const candidateCategories = [];
+  const unresolvedLines = [];
   const seenCodes = new Set();
   const seenLabels = new Set();
 
@@ -43,7 +46,9 @@ export function buildPayrollInventory(text = '', metadata = {}) {
       const label = cleanLabel(match[2].split(/\s{2,}|\|/)[0]);
       if (!seenCodes.has(code)) {
         seenCodes.add(code);
-        codes.push({ code, label });
+        const classification = classifyPayrollLabel(label);
+        codes.push({ code, label, category: classification?.category || null, kind: classification?.kind || 'verba', line: rawLine });
+        if (classification && !candidateCategories.some(item => item.category === classification.category)) candidateCategories.push(classification);
       }
     }
     MONEY.lastIndex = 0;
@@ -55,6 +60,8 @@ export function buildPayrollInventory(text = '', metadata = {}) {
         seenLabels.add(key);
         expectedSummaryLabels.push(label);
       }
+    } else if (!hasCodeLabel && MONEY.test(line)) {
+      unresolvedLines.push({ line: rawLine, index: unresolvedLines.length + 1 });
     }
     MONEY.lastIndex = 0;
   }
@@ -65,6 +72,8 @@ export function buildPayrollInventory(text = '', metadata = {}) {
     evidenceType: metadata.evidenceType || 'text',
     expectedCodes: codes,
     expectedSummaryLabels,
+    candidateCategories,
+    unresolvedLines,
     textLength: String(text).length
   };
 }
@@ -72,15 +81,21 @@ export function buildPayrollInventory(text = '', metadata = {}) {
 export function planPayrollPromptBatches(inventory = {}, options = {}) {
   const maxCodesPerPrompt = Math.max(1, Number(options.maxCodesPerPrompt || 6));
   const codes = inventory.expectedCodes || [];
+  const unresolvedLines = inventory.unresolvedLines || [];
   const fieldBatches = [];
   for (let index = 0; index < codes.length; index += maxCodesPerPrompt) {
     fieldBatches.push(codes.slice(index, index + maxCodesPerPrompt));
   }
+  const lineBatches = [];
+  if (!codes.length) {
+    for (let index = 0; index < unresolvedLines.length; index += maxCodesPerPrompt) lineBatches.push(unresolvedLines.slice(index, index + maxCodesPerPrompt));
+  }
   return {
     maxCodesPerPrompt,
     fieldBatches,
+    lineBatches,
     summaryPasses: 1,
-    plannedPrompts: 1 + fieldBatches.length
+    plannedPrompts: 2 + fieldBatches.length + lineBatches.length
   };
 }
 
@@ -89,14 +104,17 @@ const present = value => value !== null && value !== undefined && String(value).
 export function auditPayrollCoverage(inventory = {}, extraction = {}) {
   const fields = Array.isArray(extraction.fields) ? extraction.fields : [];
   const bases = Array.isArray(extraction.bases) ? extraction.bases : [];
+  const totals = extraction.totals || {};
   const extractedCodes = new Set(fields.map(field => String(field.code || '').trim()).filter(Boolean));
   const extractedLabels = new Set([...fields, ...bases].map(item => normalizeLabelKey(item.label || '')).filter(Boolean));
+  if (present(totals.totalAdditions)) extractedLabels.add(normalizeLabelKey('Total Proventos'));
+  if (present(totals.totalDeductions)) extractedLabels.add(normalizeLabelKey('Total Descontos'));
+  if (present(totals.netValue)) extractedLabels.add(normalizeLabelKey('Valor Líquido'));
   const missingCodes = (inventory.expectedCodes || []).filter(item => !extractedCodes.has(item.code));
   const missingSummaryLabels = (inventory.expectedSummaryLabels || []).filter(label => {
     const key = normalizeLabelKey(label);
     return ![...extractedLabels].some(extracted => extracted === key || extracted.includes(key) || key.includes(extracted));
   });
-  const totals = extraction.totals || {};
   const visibleCount = (inventory.expectedCodes || []).length + (inventory.expectedSummaryLabels || []).length;
   const missingCount = missingCodes.length + missingSummaryLabels.length;
   const coverage = visibleCount ? Math.max(0, (visibleCount - missingCount) / visibleCount) : (fields.length || bases.length ? 1 : 0);
@@ -136,6 +154,7 @@ export function addEvidenceMetadata(items = [], metadata = {}) {
 }
 
 export function reconcilePayrollExtractions(primary = {}, secondary = {}, metadata = {}) {
+  const conflicts = [];
   const reconcileItems = (first, second) => {
     const output = [];
     const exact = new Set();
@@ -146,7 +165,10 @@ export function reconcilePayrollExtractions(primary = {}, secondary = {}, metada
       exact.add(exactKey);
       const same = output.find(existing => identity(existing) === identity(item));
       if (same && (!same.value || same.value === '0,00') && item.value) Object.assign(same, item);
-      else output.push({ ...item });
+      else if (same && same.value && item.value && same.value !== item.value) {
+        conflicts.push({ identity: identity(item), primaryValue: same.value, secondaryValue: item.value, sourcePage: metadata.sourcePage ?? null });
+        output.push({ ...item, conflict: true });
+      } else output.push({ ...item });
     }
     return addEvidenceMetadata(output, metadata).map((item, index, all) => ({
       ...item,
@@ -159,6 +181,7 @@ export function reconcilePayrollExtractions(primary = {}, secondary = {}, metada
     ...primary,
     fields: reconcileItems(primary.fields, secondary.fields),
     bases: reconcileItems(primary.bases, secondary.bases),
-    totals: { ...(secondary.totals || {}), ...(primary.totals || {}) }
+    totals: { ...(secondary.totals || {}), ...(primary.totals || {}) },
+    conflicts: [...(primary.conflicts || []), ...(secondary.conflicts || []), ...conflicts]
   };
 }
