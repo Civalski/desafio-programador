@@ -2,9 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildApp } from '../src/server.js';
 import { transcriptionStore } from '../src/services/transcriptionStore.js';
+import { BasicAuth } from '../src/infrastructure/auth/basicAuth.js';
+
+const buildTestApp = () => buildApp({ logger: false, auth: new BasicAuth({}) });
 
 test('API de holerite: saúde, edição e exportação', async () => {
-  const app = await buildApp({ logger: false });
+  const app = await buildTestApp();
   await app.ready();
   await transcriptionStore.clear();
   try {
@@ -20,7 +23,7 @@ test('API de holerite: saúde, edição e exportação', async () => {
 });
 
 test('API recusa tipos de documento fora do escopo', async () => {
-  const app = await buildApp({ logger: false });
+  const app = await buildTestApp();
   await app.ready();
   try {
     const response = await app.inject({ method: 'POST', url: '/api/transcricoes', headers: { 'content-type': 'multipart/form-data; boundary=boundary' }, payload: '--boundary\r\nContent-Disposition: form-data; name="tipo"\r\n\r\noutro\r\n--boundary--\r\n' });
@@ -29,7 +32,7 @@ test('API recusa tipos de documento fora do escopo', async () => {
 });
 
 test('API recusa cartão de ponto', async () => {
-  const app = await buildApp({ logger: false });
+  const app = await buildTestApp();
   await app.ready();
   try {
     const response = await app.inject({ method: 'POST', url: '/api/transcricoes', headers: { 'content-type': 'multipart/form-data; boundary=boundary' }, payload: '--boundary\r\nContent-Disposition: form-data; name="tipo"\r\n\r\ncartao-ponto\r\n--boundary--\r\n' });
