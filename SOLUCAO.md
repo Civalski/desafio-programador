@@ -21,7 +21,7 @@ As dependências foram revisadas para a entrega. A biblioteca `canvas` foi remov
 
 ## Como executar
 
-Pré-requisito: Node.js 22 ou superior. Para processar PDFs escaneados com IA, defina `OPENAI_API_KEY` no ambiente. PDFs com camada de texto possuem fallback local quando a chave não está disponível, dentro das limitações descritas abaixo.
+Pré-requisito: Node.js 22 ou superior e uma chave `OPENAI_API_KEY`. A OpenAI é obrigatória para transcrever PDFs com texto e PDFs escaneados; não existe fallback de extração local.
 
 ```bash
 npm install
@@ -46,12 +46,13 @@ O serviço estará em `http://localhost:3000`. A chave não é gravada na imagem
 PDF → validação de upload → job assíncrono → extração/normalização → revisão → exportação
                               │
               texto do PDF ──┴── página escaneada
-                  extração local     rasterização + OpenAI Vision
+              preparação de texto    rasterização
+                         └──── OpenAI ────┘
 ```
 
 1. A API valida o arquivo e cria um job, retornando `202 Accepted` imediatamente.
 2. O processamento ocorre em segundo plano. A interface consulta o status e apresenta o progresso.
-3. A camada de texto do PDF é usada quando disponível. Para páginas escaneadas, a página é rasterizada e enviada à OpenAI com capacidade visual.
+3. A camada de texto ou a imagem rasterizada é preparada localmente; a extração estruturada é sempre executada pela OpenAI.
 4. A resposta do modelo não é aceita como fonte de verdade: normalizadores validam estrutura, mês, datas, moeda e a separação entre `fields` e `bases`. Dado ilegível deve permanecer explícito como `?`, sem inferência.
 5. A pessoa usuária revisa a transcrição ao lado do PDF. O resultado corrigido alimenta os downloads XLSX, CSV ou JSON.
 
@@ -75,11 +76,11 @@ npm test
 npm run build
 ```
 
-Os testes focam no que protege o contrato da entrega: normalização e validações de domínio, segmentação de PDFs densos, exportação, extração com mocks e endpoints da API. As chamadas da OpenAI são mockadas; a suíte não depende de chave ou rede.
+Os testes sem rede protegem preparação, densidade, segmentação, normalização, exportação e endpoints. Eles não simulam nem alegam validar a qualidade da extração da OpenAI; essa validação exige uma execução real com credenciais.
 
 ## Limitações e próximos passos
 
-- A qualidade da extração depende da legibilidade do PDF e da disponibilidade da OpenAI para documentos escaneados.
+- A qualidade e a disponibilidade de toda transcrição dependem da OpenAI, tanto para documentos textuais quanto escaneados.
 - O armazenamento local atende ao desenvolvimento; a operação em produção requer persistência remota configurada.
 - Uma evolução prioritária é persistir resultados por página, com retries observáveis e retomada de jobs longos.
 - Telemetria de modelo, tokens, latência e estratégia por página permitiria medir custo e precisão com dados reais.

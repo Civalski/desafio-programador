@@ -16,9 +16,8 @@ flowchart LR
     STATE --> D1[(Cloudflare D1\njobs e resultados por página)]
     STATE --> R2[(Cloudflare R2\nPDFs originais)]
     API -->|processamento assíncrono| PIPE[Pipeline de extração]
-    PIPE -->|PDF com texto| LOCAL[Extrator local\nsegmentação e normalização]
-    PIPE -->|PDF escaneado ou Vision| AI[OpenAI API]
-    LOCAL --> STATE
+    PIPE --> PREP[Preparação local\ndensidade, segmentação e rasterização]
+    PREP -->|texto ou imagem| AI[OpenAI API\nextração obrigatória]
     AI --> STATE
     STATE -->|status e resultado| API
     API -->|polling e exportação XLSX/CSV/JSON| UI
@@ -31,7 +30,7 @@ Em produção, a API retorna `202 Accepted` e conclui o processamento em segundo
 
 `enviar holerite → processar em segundo plano → revisar → baixar XLSX, CSV ou JSON`
 
-O envio cria um job assíncrono e retorna `202 Accepted`. A extração usa a camada de texto do PDF quando disponível e OpenAI Vision em páginas escaneadas. Antes de persistir, o resultado é normalizado para preservar valores monetários como strings brasileiras e separar verbas (`fields`) de bases e totais (`bases`).
+O envio cria um job assíncrono e retorna `202 Accepted`. Todo dado transcrito é produzido pela OpenAI: PDFs textuais enviam texto preparado e PDFs escaneados enviam imagens via Vision. O processamento local apenas mede densidade, segmenta e rasteriza para definir a estratégia e a quantidade de prompts. Sem OpenAI configurada ou disponível, o job falha explicitamente. Antes de persistir, o resultado é normalizado para preservar valores monetários como strings brasileiras e separar verbas (`fields`) de bases e totais (`bases`).
 
 ## Executar localmente
 

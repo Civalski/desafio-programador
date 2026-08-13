@@ -28,18 +28,16 @@ O upload responde com **HTTP 202** para não prender a requisição durante uma 
 flowchart TD
     PDF[PDF recebido] --> VALID[Validação: multipart, MIME, assinatura e leitura]
     VALID --> DENSITY[Leitura da camada de texto e análise de densidade]
-    DENSITY --> DECISION{Há chave OpenAI?}
-    DECISION -->|Sim| AI[OpenAI: texto ou Vision para páginas escaneadas]
-    DECISION -->|Não| LOCAL[Extrator local baseado na camada de texto]
+    DENSITY --> PREP[Preparação de texto ou rasterização]
+    PREP --> AI[OpenAI obrigatória: texto ou Vision]
     AI --> NORM[Normalização de holerite]
-    LOCAL --> NORM
     NORM --> AUDIT[Auditoria de competências e valores]
     AUDIT --> PAGE[Persistência incremental por página]
     PAGE --> RESULT[Resultado disponível para revisão]
 ```
 
-- PDFs com camada de texto podem ser processados localmente; o analisador identifica documentos densos e, quando a IA está ativa, ajusta a estratégia de chamadas.
-- PDFs escaneados dependem do modo Vision da OpenAI. Sem chave, a aplicação informa que não consegue extrair documentos sem texto.
+- PDFs com camada de texto são analisados localmente somente para preparar e dimensionar os prompts enviados à OpenAI.
+- PDFs escaneados são rasterizados e enviados ao modo Vision. Nenhum dos dois fluxos transcreve dados sem OpenAI.
 - Fichas financeiras são detectadas e divididas em blocos mensais antes da extração.
 - A normalização preserva valores monetários como texto no formato brasileiro e separa `fields` (verbas) de `bases` e totais.
 - Resultados de páginas são salvos durante o processamento. Isso permite retomar jobs interrompidos sem refazer páginas já concluídas.
@@ -167,7 +165,7 @@ Variáveis relevantes:
 
 | Variável | Uso |
 |---|---|
-| `OPENAI_API_KEY` ou `OPENAI_SECRET_KEY` | Habilita a extração por IA/Vision |
+| `OPENAI_API_KEY` ou `OPENAI_SECRET_KEY` | Obrigatória para qualquer transcrição, textual ou Vision |
 | `PORT`, `HOST`, `LOG_LEVEL` | Configuração do servidor Fastify |
 | `APP_ENV=production` / `VERCEL` | Ativa o modo de produção |
 | `STATE_API_URL`, `STATE_API_TOKEN` | Persistência remota obrigatória em produção |
@@ -183,7 +181,7 @@ Comandos de verificação úteis: `npm test`, `npm run benchmark:payroll01` e `n
 - Não versionar chaves de API ou tokens. Em produção, mantenha `STATE_API_TOKEN` diferente da chave OpenAI.
 - PDFs de holerite contêm PII; a retenção deve seguir a política de privacidade aplicável. A exclusão por `DELETE` remove o job e seu arquivo associado.
 - O CORS atual aceita qualquer origem (`origin: true`); para um ambiente público, convém restringi-lo ao domínio da aplicação.
-- O processamento ainda depende da disponibilidade da OpenAI para PDFs escaneados. Há fallback local apenas quando existe camada de texto.
+- Toda transcrição depende da disponibilidade da OpenAI. O processamento local não produz uma transcrição alternativa.
 - O `vercel.json` define duração máxima de 300 segundos. Documentos muito grandes, limites do provedor ou falhas transitórias continuam sendo riscos operacionais; a persistência incremental e a rota de retomada reduzem esse impacto.
 
 ## Próximas evoluções sugeridas

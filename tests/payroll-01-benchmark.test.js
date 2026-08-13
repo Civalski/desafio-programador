@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'path';
 import { parseGroundTruth, runBenchmark } from '../scripts/benchmark-payroll01.js';
-import { openaiService } from '../src/services/openaiService.js';
 import { config } from '../src/config/env.js';
 
 test('Suíte de Benchmark - payroll-01.pdf vs Ground Truth Auditado', async () => {
@@ -14,10 +13,9 @@ test('Suíte de Benchmark - payroll-01.pdf vs Ground Truth Auditado', async () =
   assert.ok(Array.isArray(gtBlocks), 'Ground Truth deve ser uma array de blocos mensais');
   assert.equal(gtBlocks.length, 5, 'Ground Truth deve conter 5 meses auditados (04/17, 05/17, 06/17, 07/17, 12/17)');
 
-  // 2. Executa IA no documento (sem passar Ground Truth para a IA)
-  // Utiliza mock no teste automatizado se APIs não estiverem configuradas ou useMock habilitado
-  const aiDTO = await openaiService.parsePayroll(pdfPath, { useMock: true });
-  assert.ok(aiDTO && Array.isArray(aiDTO.pages), 'AI DTO deve conter páginas extraídas');
+  // 2. Valida o motor sem fingir que houve uma extração da OpenAI.
+  assert.ok(pdfPath.endsWith('holerite-1.pdf'));
+  const aiDTO = { pages: gtBlocks.map(block => ({ month: block.month, year: block.year, fields: [], bases: [] })) };
 
   // 3. Executa o Motor do Benchmark
   const benchmarkResult = runBenchmark(aiDTO, gtBlocks);

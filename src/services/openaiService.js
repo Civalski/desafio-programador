@@ -2,7 +2,7 @@ import OpenAI from 'openai';
 import fs from 'fs';
 import { config } from '../config/env.js';
 import { normalizePayrollResponse } from '../normalizers/payrollNormalizer.js';
-import { extractPayrollLocalPdf, rasterizePdfPages } from '../utils/pdfExtractor.js';
+import { rasterizePdfPages } from '../utils/pdfExtractor.js';
 import { detectFichaFinanceira, segmentAllMonthBlocks } from '../utils/fichaFinanceiraSegmenter.js';
 import { analyzePageDensity, selectExtractionStrategy } from '../utils/densityAnalyzer.js';
 import { PDFExtract } from 'pdf.js-extract';
@@ -320,16 +320,18 @@ export class OpenAIService {
   async parsePayroll(filePath, options = {}) {
     const onProgress = options.onProgress || (() => {});
     const onPageCompleted = options.onPageCompleted || (() => {});
-    let scannedPageNumbers = [];
     try {
       if (!fs.existsSync(filePath)) {
         throw new Error(`Arquivo nÃ£o encontrado: ${filePath}`);
       }
 
+      if (!this.isReady()) {
+        throw new Error('OPENAI_NOT_CONFIGURED: configure OPENAI_API_KEY ou OPENAI_SECRET_KEY para transcrever documentos.');
+      }
+
       onProgress({ current: 0, total: 0, percentage: 5, message: 'Lendo arquivo PDF e analisando layout...', log: 'Arquivo PDF carregado no servidor. Analisando estrutura...' });
 
-      if (this.isReady() && !options.useMock) {
-        try {
+      try {
           // Extrai o PDF bruto via pdfExtract para verificar se Ã© Ficha Financeira
           const pdfRawData = await new Promise((resolve, reject) => {
             pdfExtract.extract(filePath, {}, (err, res) => {
@@ -428,7 +430,7 @@ export class OpenAIService {
           const skippedPages = new Set(options.completedPageNumbers || []);
           const pdfPages = (await this.extractPdfTextPages(filePath)).filter(page => !skippedPages.has(page.pageNum));
           const totalPages = pdfPages.length;
-          scannedPageNumbers = pdfPages
+          const scannedPageNumbers = pdfPages
             .filter(page => selectExtractionStrategy(page.density, false) === 'VISION_SINGLE_PASS')
             .map(page => page.pageNum);
           let scannedImages = new Map();
@@ -567,23 +569,11 @@ export class OpenAIService {
           if (normalized.pages?.[0]?.fields?.length) {
             return normalized;
           }
+          throw new Error('OPENAI_EXTRACTION_EMPTY: a OpenAI não retornou verbas válidas para o documento.');
         } catch (apiErr) {
-          if (apiErr.message?.startsWith('VISION_EXTRACTION_UNAVAILABLE:')) throw apiErr;
-          console.warn(`âš ï¸ API da OpenAI falhou (${apiErr.message}). Utilizando extrator local em PDF...`);
-          onProgress({ current: 0, total: 0, percentage: 10, message: 'Utilizando extrator local de PDF...', log: `OpenAI indisponivel (${apiErr.message}). Recorrendo ao extrator local.` });
+          if (apiErr.message?.startsWith('OPENAI_') || apiErr.message?.startsWith('VISION_EXTRACTION_UNAVAILABLE:')) throw apiErr;
+          throw new Error(`OPENAI_EXTRACTION_FAILED: ${apiErr.message}`);
         }
-      }
-
-      // Fallback para o extrator local
-      const localResult = await extractPayrollLocalPdf(filePath, options);
-      const normalizedLocal = normalizePayrollResponse(localResult);
-
-      const hasFields = normalizedLocal.pages?.some(p => p.fields && p.fields.length > 0);
-      if (!hasFields && scannedPageNumbers.length > 0) {
-        throw new Error('PDF escaneado/imagem detectado (payroll-04.pdf). NÃ£o foi possÃ­vel extrair dados via OpenAI Vision nem pelo extrator local.');
-      }
-
-      return normalizedLocal;
 
     } catch (error) {
       console.error('Erro no processamento do documento.');

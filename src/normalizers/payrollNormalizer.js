@@ -175,7 +175,7 @@ export function normalizePayrollResponse(rawData, options = {}) {
     });
 
     // Incorpora bases pré-separadas vindas diretamente do OpenAI (pageData.bases)
-    // O extrator local coloca tudo em 'fields' e separa por regex; o OpenAI já separa.
+    // A resposta da OpenAI já separa verbas, bases e totais.
     if (Array.isArray(pageData.bases)) {
       pageData.bases.forEach((b) => {
         const label = (b.label || '').trim();

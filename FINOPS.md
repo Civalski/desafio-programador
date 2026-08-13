@@ -21,7 +21,7 @@ O custo principal depende da tabela de preços do `gpt-5.6-luna` no provedor con
 
 ## Como o custo é definido
 
-1. Extração local mede o conteúdo da página, sem custo de IA.
+1. O pré-processamento local mede o conteúdo da página, sem extrair dados e sem custo de IA.
 2. Páginas simples usam uma chamada; páginas densas podem usar duas.
 3. PDFs escaneados usam visão. Fichas financeiras usam uma chamada por mês/bloco.
 4. Em erro, o sistema pode tentar outro modelo, elevando o custo.

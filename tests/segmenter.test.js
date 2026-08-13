@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import path from 'path';
 import { PDFExtract } from 'pdf.js-extract';
 import { segmentPagePayslips } from '../src/utils/payslipSegmenter.js';
-import { extractPayrollLocalPdf } from '../src/utils/pdfExtractor.js';
 import { config } from '../src/config/env.js';
 
 const pdfExtract = new PDFExtract();
@@ -31,7 +30,6 @@ test('Segmentador de Holerites - Detecção de 6 holerites em payroll-01.pdf', a
     assert.ok(regions[i].yStart < regions[i + 1].yStart, `Região ${i} yStart deve anteceder região ${i + 1}`);
   }
 });
-
 test('Segmentador de Holerites - Detecção de 2 holerites com alturas diferentes em payroll-02.pdf', async () => {
   const filePath = path.resolve(config.dataInputDir, 'holerite-2.pdf');
   const data = await pdfExtract.extract(filePath, {});
@@ -67,16 +65,3 @@ test('Segmentador de Holerites - Resiliência e Fallback em PDF sem texto (payro
   assert.equal(regions[0].isFallback, true, 'Deve indicar isFallback=true');
 });
 
-test('Extrator Local com Segmentação Integrada - payroll-01.pdf', async () => {
-  const filePath = path.resolve(config.dataInputDir, 'holerite-1.pdf');
-  const result = await extractPayrollLocalPdf(filePath);
-
-  assert.ok(result.pages, 'Deve conter a chave "pages"');
-  assert.ok(result.pages.length >= 6, `Página multi-holerite deve gerar múltiplos registros de holerites (encontrado ${result.pages.length})`);
-  
-  // Verifica se as competências foram separadas corretamente
-  const months = result.pages.map(p => p.month);
-  assert.ok(months.includes('04'), 'Deve conter competência do mês 04');
-  assert.ok(months.includes('05'), 'Deve conter competência do mês 05');
-  assert.ok(months.includes('06'), 'Deve conter competência do mês 06');
-});
