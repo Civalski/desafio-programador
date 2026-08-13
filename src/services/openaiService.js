@@ -397,6 +397,57 @@ export class OpenAIService {
   async runHybridPageAgents(pageObj, options = {}) {
     const isVision = Boolean(options.isVision);
     const imageDataUrl = options.imageDataUrl || null;
+
+    // Tesseract depende de worker e arquivos de idioma locais e pode não finalizar
+    // no ciclo de vida serverless. Em produção, páginas escaneadas seguem direto
+    // para o Vision da OpenAI, que é o fallback canônico do produto.
+    if (isVision && config.isProduction) {
+      if (!imageDataUrl) {
+        throw new Error(`VISION_EXTRACTION_UNAVAILABLE: imagem da página ${pageObj.pageNum} não foi gerada.`);
+      }
+      const raw = await this.generateCompletionWithFallback([
+        { role: 'system', content: PROMPT_SINGLE_PASS },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'Analise esta página escaneada de holerite e retorne somente o JSON solicitado.' },
+            { type: 'image_url', image_url: { url: imageDataUrl, detail: 'high' } }
+          ]
+        }
+      ]);
+      let parsed;
+      try { parsed = JSON.parse(raw); } catch { parsed = {}; }
+      const competency = parsed.competency || {};
+      const fields = Array.isArray(parsed.fields) ? parsed.fields : [];
+      const bases = Array.isArray(parsed.bases) ? parsed.bases : [];
+      return {
+        page: pageObj.pageNum,
+        resultKey: `page:${pageObj.pageNum}`,
+        month: competency.month || parsed.month || '',
+        year: competency.year || parsed.year || '',
+        paymentDate: competency.paymentDate || parsed.paymentDate || null,
+        company: parsed.company || null,
+        employee: parsed.employee || null,
+        bankInfo: parsed.bankInfo || null,
+        fields,
+        bases,
+        totals: parsed.totals || {},
+        extraction: {
+          valid: fields.length > 0,
+          coverage: fields.length > 0 ? 1 : 0,
+          warnings: fields.length > 0 ? [] : ['A análise visual não identificou verbas nesta página.'],
+          strategy: 'OPENAI_VISION_SINGLE_PASS',
+          plannedPrompts: 1,
+          executedPrompts: 1,
+          localItems: 0,
+          aiItems: fields.length + bases.length,
+          ocrConfidence: null,
+          conflicts: [],
+          sources: ['vision']
+        }
+      };
+    }
+
     let sourceText = pageObj.text || '';
     let ocr = null;
     if (isVision && imageDataUrl) {
