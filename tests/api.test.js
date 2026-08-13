@@ -7,7 +7,8 @@ import { isTimeCardEnabled } from '../src/config/features.js';
 test('Time-card fica bloqueado em ambiente hospedado e habilitado localmente', async () => {
   assert.equal(isTimeCardEnabled({}), true);
   assert.equal(isTimeCardEnabled({ VERCEL: '1' }), false);
-  assert.equal(isTimeCardEnabled({ VERCEL: '1', ENABLE_TIME_CARD: 'true' }), true);
+  assert.equal(isTimeCardEnabled({ VERCEL: '1', ENABLE_TIME_CARD: 'true' }), false);
+  assert.equal(isTimeCardEnabled({ APP_ENV: 'development', ENABLE_TIME_CARD: 'true' }), true);
 
   const previous = process.env.ENABLE_TIME_CARD;
   process.env.ENABLE_TIME_CARD = 'false';

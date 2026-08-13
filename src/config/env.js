@@ -7,18 +7,16 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Carrega .env do diretório atual e do diretório pai se existir
-const currentEnvPath = path.resolve(process.cwd(), '.env');
-const parentEnvPath = path.resolve(process.cwd(), '../.env');
+const environment = process.env.APP_ENV || (process.env.VERCEL ? 'production' : 'development');
+const developmentEnvPath = path.resolve(process.cwd(), '.env.development');
 
-if (fs.existsSync(currentEnvPath)) {
-  dotenv.config({ path: currentEnvPath });
-} else if (fs.existsSync(parentEnvPath)) {
-  dotenv.config({ path: parentEnvPath });
-} else {
-  dotenv.config();
+if (environment === 'development' && fs.existsSync(developmentEnvPath)) {
+  dotenv.config({ path: developmentEnvPath });
 }
 
 export const config = {
+  environment,
+  isProduction: environment === 'production',
   openaiApiKey: process.env.OPENAI_API_KEY || process.env.OPENAI_SECRET_KEY || '',
   dataInputDir: process.env.DATA_INPUT_DIR 
     ? path.resolve(process.env.DATA_INPUT_DIR)

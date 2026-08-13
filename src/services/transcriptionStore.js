@@ -6,6 +6,10 @@ import { DatabaseSync } from 'node:sqlite';
 
 const remoteUrl = process.env.STATE_API_URL;
 const remoteToken = process.env.STATE_API_TOKEN;
+const isProduction = process.env.APP_ENV === 'production' || Boolean(process.env.VERCEL);
+if (isProduction && (!remoteUrl || !remoteToken)) {
+  throw new Error('Produção requer STATE_API_URL e STATE_API_TOKEN para persistência de jobs.');
+}
 const dataDir = process.env.VERCEL ? path.join(os.tmpdir(), 'quick-filler') : path.resolve(process.cwd(), 'data');
 let db;
 if (!remoteUrl) {

@@ -6,6 +6,9 @@ Antes de finalizar qualquer subtarefa ou submeter cÃ³digo no repositÃ³rio, o
 
 ## ðŸ” Checklist de ValidaÃ§Ã£o
 
+- [ ] **Ambiente correto**: alterações de operação/deploy consultaram `06-architecture-ops.md`; desenvolvimento usou `.env.development` e produção usa somente variáveis hospedadas.
+- [ ] **Publicação protegida**: produção vem de `main`, possui persistência remota configurada e `ENABLE_TIME_CARD=false`.
+
 - [ ] **Contrato HTTP Literal**: `POST /api/transcricoes`, `GET /api/transcricoes/:id`, `PUT /api/transcricoes/:id`, `GET /api/transcricoes/:id/planilha` e `GET /healthz` atendem exatamente os tipos de dados e payloads.
 - [ ] **Honestidade de Incertezas**: Digitos ilegÃ­veis utilizam `?` por caractere individual.
 - [ ] **Moeda em String BR**: Nenhum valor monetÃ¡rio Ã© retornado como float.

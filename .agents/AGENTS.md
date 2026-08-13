@@ -5,7 +5,8 @@ Este arquivo orienta agentes de código neste repositório. `README.md` define o
 ## Fluxo de trabalho
 
 1. Antes de editar, leia `.harness/INDEX.md` e apenas os módulos pertinentes. Para contrato e domínio, priorize `README.md`; para critérios, `INSTRUCOES.md`.
-2. Inspecione código, testes e configuração existentes antes de decidir. Não suponha arquivos, modelos, bibliotecas ou endpoints.
+2. Antes de qualquer alteração de ambiente, deploy, persistência, API ou feature flag, leia também `.harness/specs/06-architecture-ops.md` e `.harness/guardrails/quality-checklist.md`.
+3. Inspecione código, testes e configuração existentes antes de decidir. Não suponha arquivos, modelos, bibliotecas ou endpoints.
 3. Preserve alterações não relacionadas. Não sobrescreva `.env`, PDFs de exemplo, saídas geradas ou código fora do escopo.
 4. Faça mudanças coesas e valide com o teste/lint mais específico disponível. Ao concluir, informe o que foi efetivamente verificado.
 
@@ -14,6 +15,13 @@ Este arquivo orienta agentes de código neste repositório. `README.md` define o
 Em conflitos, use: 1) contratos e regras do `README.md`; 2) `INSTRUCOES.md`; 3) `.harness/specs/`; 4) código e testes; 5) este guia. Não altere contratos públicos para acomodar decisões internas.
 
 ## Regras de domínio
+
+## Separação obrigatória de ambientes
+
+- Desenvolvimento é somente local: usa `.env.development`, `npm run dev`, armazenamento local e pode habilitar time-card.
+- Produção é somente Vercel/Git na branch `main`: recebe variáveis pelo painel, requer persistência remota (`STATE_API_URL` e `STATE_API_TOKEN`) e mantém `ENABLE_TIME_CARD=false`.
+- Nunca execute `vercel --prod` a partir de diretório local ou branch de feature. O build de produção deve falhar fora da branch `main`.
+- Antes de publicar, execute testes, build e smoke test de payroll; não promova time-card sem solicitação explícita do usuário.
 
 - Um único pipeline atende cartão de ponto e holerite: upload, job assíncrono, revisão, persistência e exportação são compartilhados; extratores/schemas são específicos.
 - `POST /api/transcricoes` retorna `202` com `id`; OCR e IA nunca bloqueiam a requisição HTTP.

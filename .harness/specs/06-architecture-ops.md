@@ -23,6 +23,13 @@ Centralize prompts, modelo, timeout, retries, fallback e telemetria no serviço 
 
 ## Configuração e custo
 
+## Ambientes e publicação
+
+- Desenvolvimento e produção são ambientes isolados. Desenvolvimento usa somente `.env.development` e o servidor local; produção recebe variáveis exclusivamente do provedor de hospedagem.
+- Produção é publicada somente pela integração Git a partir de `main`. Não use deploy manual de diretórios locais ou branches de feature.
+- Em produção, `APP_ENV=production`, `ENABLE_TIME_CARD=false`, `STATE_API_URL` e `STATE_API_TOKEN` são obrigatórios. O armazenamento temporário da função não pode ser usado para jobs.
+- Time-card pode ser desenvolvido e testado localmente, mas não pode aparecer na UI nem ser aceito pela API de produção até aprovação explícita.
+
 - Chaves ficam no ambiente; `.env.example` tem apenas placeholders e `.env` não é versionado.
 - Alterações de modelo, uma/duas passagens, rasterização ou retry exigem justificativa de precisão/custo e atualização FinOps quando aplicável.
 - Cache por hash e extração local são aceitos se não ocultarem mudanças nem cruzarem dados de usuários.

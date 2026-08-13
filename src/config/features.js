@@ -3,6 +3,6 @@
  * its development work is still in progress.
  */
 export function isTimeCardEnabled(env = process.env) {
-  if (env.ENABLE_TIME_CARD !== undefined) return env.ENABLE_TIME_CARD === 'true';
-  return !env.VERCEL;
+  const isProduction = env.APP_ENV === 'production' || Boolean(env.VERCEL);
+  return !isProduction && env.ENABLE_TIME_CARD !== 'false';
 }
