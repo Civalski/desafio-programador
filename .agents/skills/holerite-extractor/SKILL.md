@@ -1,35 +1,18 @@
----
+﻿---
 name: holerite-extractor
-description: Instruções e contexto focado para implementar, testar ou debugar o extrator de Holerites via Mindee API.
+description: Implementar, testar ou depurar a extração OpenAI de holerites.
 ---
 
-# Skill: Extrator de Holerite (via API Mindee)
+# Extrator de holerite com OpenAI
 
-Ative esta skill quando estiver trabalhando no parser de **Holerites**.
+Use somente `OPENAI_API_KEY` (ou o alias compatível já suportado). Reutilize o serviço OpenAI centralizado; não chame o SDK em controllers/UI nem introduza outro provedor.
 
----
+1. Use texto nativo do PDF quando houver conteúdo suficiente; em página escaneada, use Vision da OpenAI.
+2. Peça saída estruturada e valide/normalize antes de persistir. A resposta do modelo não é fonte de verdade.
+3. `fields[]` contém apenas verbas da tabela principal; bases, totais e líquido pertencem a `bases[]`.
+4. Valores monetários permanecem strings BR; `year` tem quatro dígitos e `month` está entre `01` e `12`.
+5. Preserve ordem e evidência impressa; marque caracteres incertos com `?`, nunca invente valores.
+6. Teste com cliente OpenAI mockado, sem chave real/rede, cobrindo texto, Vision, schema inválido e separação `fields`/`bases` quando alterados.
 
-## 📌 Checklist de Implementação do Extrator
+Consulte `../../../.harness/specs/02-domain-holerite.md` e `../../../.harness/specs/06-architecture-ops.md`.
 
-1. **Integração com API Mindee**:
-   - Enviar o arquivo PDF enviado para a API do Mindee utilizando a chave `MINDEE_API_KEY`.
-   - Processar os campos extraídos pela IA do Mindee e mapeá-los para a estrutura JSON estrita do projeto.
-
-2. **Separação Obrigatória `fields` vs `bases`**:
-   - `fields[]`: Apenas verbas (proventos e descontos) da tabela principal.
-   - `bases[]`: Apenas `Base INSS`, `Base FGTS`, `Base IRRF`, `Total Vencimentos`, `Total Descontos`, `Valor Líquido`.
-
-3. **Formatação Monetária**:
-   - Manter valores como STRING no formato brasileiro (`"2.389,77"`). NUNCA converter para float.
-
-4. **Competência (`year` / `month`)**:
-   - `year`: 4 dígitos (`"2020"`).
-   - `month`: 2 dígitos com zero à esquerda (`"01"` a `"12"`).
-
-5. **Incerteza (`?`)**:
-   - Caracteres não identificados pela IA do Mindee com alta confiança devem ser gravados como `?` no valor ou label.
-
----
-
-## 🔗 Referência Completa
-Consulte a especificação técnica detalhada em [02-domain-holerite.md](file:///c:/Users/Alisson%20Civalski/Documents/Quick/desafio-programador/.harness/specs/02-domain-holerite.md) e [06-architecture-ops.md](file:///c:/Users/Alisson%20Civalski/Documents/Quick/desafio-programador/.harness/specs/06-architecture-ops.md).

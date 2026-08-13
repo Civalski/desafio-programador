@@ -1,5 +1,5 @@
 import { listInputDocuments } from '../src/utils/inputDocuments.js';
-import { geminiService } from '../src/services/geminiService.js';
+import { openaiService } from '../src/services/openaiService.js';
 import { isValidDateString } from '../src/utils/validationUtils.js';
 
 console.log('=== Suíte de Validação de Testes de Extração (8 PDFs) ===\n');
@@ -28,7 +28,7 @@ async function runExtractionTests() {
     totalTests++;
     try {
       console.log(`\n  📄 Processando [${doc.name}]...`);
-      const dto = await geminiService.parsePayroll(doc.fullPath, { useMock: true });
+      const dto = await openaiService.parsePayroll(doc.fullPath, { useMock: true });
 
       if (!dto.pages || !Array.isArray(dto.pages)) {
         throw new Error('DTO inválido: propriedade "pages" deve ser uma array');
@@ -59,7 +59,7 @@ async function runExtractionTests() {
     totalTests++;
     try {
       console.log(`\n  ⏱️ Processando [${doc.name}]...`);
-      const dto = await geminiService.parseTimeCard(doc.fullPath, { useMock: true });
+      const dto = await openaiService.parseTimeCard(doc.fullPath, { useMock: true });
 
       if (!dto.pages || !Array.isArray(dto.pages)) {
         throw new Error('DTO inválido: propriedade "pages" deve ser uma array');

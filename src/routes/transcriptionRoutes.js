@@ -76,7 +76,8 @@ export async function transcriptionRoutes(fastify) {
       try {
         const docTypeMapping = tipo === 'cartao-ponto' ? 'time_card' : 'payroll';
         const onProgress = (progUpdate) => transcriptionStore.updateJobProgress(job.id, progUpdate);
-        const parsedResult = await aiProviderService.parseDocument(tempFilePath, docTypeMapping, { onProgress });
+        const onPageCompleted = (page) => transcriptionStore.savePageResult(job.id, page.page, page);
+        const parsedResult = await aiProviderService.parseDocument(tempFilePath, docTypeMapping, { onProgress, onPageCompleted });
 
         // Se o resultado for válido, conclui o job
         transcriptionStore.completeJob(job.id, parsedResult);
@@ -96,23 +97,12 @@ export async function transcriptionRoutes(fastify) {
     const processPromise = processJob();
 
     if (process.env.VERCEL) {
-      // Em ambiente Serverless (Vercel), aguardamos a conclusão do processamento para retornar
-      // o resultado completo no próprio POST, evitando 404s por distribuição de carga entre lambdas stateless.
-      await processPromise;
-      const updatedJob = transcriptionStore.getJob(job.id) || job;
-      return reply.status(200).send({
-        id: updatedJob.id,
-        tipo: updatedJob.tipo,
-        status: updatedJob.status,
-        progress: updatedJob.progress,
-        erro: updatedJob.erro,
-        value: updatedJob.value
-      });
+      waitUntil(processPromise);
     } else {
       setImmediate(() => processPromise);
     }
 
-    // Em ambiente local/desenvolvimento, retorna HTTP 202 Accepted imediatamente para polling
+    // Retorna HTTP 202 Accepted imediatamente para que a interface possa fazer polling.
     return reply.status(202).send({
       id: job.id
     });

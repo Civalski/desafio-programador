@@ -321,6 +321,7 @@ export class OpenAIService {
    */
   async parsePayroll(filePath, options = {}) {
     const onProgress = options.onProgress || (() => {});
+    const onPageCompleted = options.onPageCompleted || (() => {});
     let scannedPageNumbers = [];
     try {
       if (!fs.existsSync(filePath)) {
@@ -388,6 +389,7 @@ export class OpenAIService {
                   totals: parsed.totals || {},
                   bases: parsed.bases || []
                 };
+                onPageCompleted(result);
 
                 completedBlocks++;
                 const pct = Math.min(95, Math.round(10 + (completedBlocks / blocks.length) * 85));
@@ -528,6 +530,7 @@ export class OpenAIService {
                 totals: totalsData.totals || {},
                 bases: totalsData.bases || []
               };
+              onPageCompleted(result);
 
               completedPages++;
               const pct = Math.min(95, Math.round(10 + (completedPages / totalPages) * 85));

@@ -1,31 +1,18 @@
----
+﻿---
 name: cartao-ponto-extractor
-description: Instruções e contexto focado para implementar, testar ou debugar o extrator de Cartão de Ponto via Mindee API.
+description: Implementar, testar ou depurar a extração OpenAI de cartões de ponto.
 ---
 
-# Skill: Extrator de Cartão de Ponto (via API Mindee)
+# Extrator de cartão de ponto com OpenAI
 
-Ative esta skill quando estiver trabalhando no serviço de extração e parsing de dados de **Cartão de Ponto**.
+Use somente `OPENAI_API_KEY` (ou o alias compatível já suportado). Reutilize o serviço OpenAI centralizado; não chame o SDK em controllers/UI nem introduza outro provedor.
 
----
+1. Use texto nativo do PDF quando houver conteúdo suficiente; em página escaneada, use Vision da OpenAI.
+2. Peça saída estruturada e valide/normalize antes de persistir.
+3. Preserve `days[]` na ordem física, `date_raw` e `time_raw` impressos, e batidas `IN`/`OUT` na ordem original.
+4. Inclua dias sem batidas como `punches: []`; nunca gere data impossível nem descarte linha parcialmente legível.
+5. Marque apenas o caractere incerto com `?`; não invente horário ou data.
+6. Teste com cliente OpenAI mockado, sem chave real/rede, cobrindo texto, Vision, schema inválido e incerteza quando alterados.
 
-## 📌 Checklist de Implementação do Extrator
+Consulte `../../../.harness/specs/01-domain-cartao-ponto.md` e `../../../.harness/specs/06-architecture-ops.md`.
 
-1. **Integração com API Mindee**:
-   - Enviar o arquivo PDF enviado para a API do Mindee utilizando a chave `MINDEE_API_KEY`.
-   - Processar o retorno da IA do Mindee e mapear as coordenadas/predições de texto para o contrato JSON estrito.
-
-2. **Parsing de Linhas**:
-   - Manter `days[]` na ordem física do documento. NUNCA reordenar por data.
-   - Preservar `date_raw` exatamente como retornado/impresso.
-   - Extrair batidas em pares entrada/saída (`kind`: `"IN"` / `"OUT"`).
-   - Manter `time_raw` original e `time_hhmm` normalizado (24h).
-   - Se o dia constar no documento mas não tiver batida, incluir `{ "date_raw": "...", "punches": [] }`.
-
-3. **Incerteza (`?`)**:
-   - Caracteres não identificados pela IA do Mindee com alta confiança devem ser gravados como `?` em `time_raw` e `time_hhmm`.
-
----
-
-## 🔗 Referência Completa
-Consulte a especificação técnica detalhada em [01-domain-cartao-ponto.md](file:///c:/Users/Alisson%20Civalski/Documents/Quick/desafio-programador/.harness/specs/01-domain-cartao-ponto.md) e [06-architecture-ops.md](file:///c:/Users/Alisson%20Civalski/Documents/Quick/desafio-programador/.harness/specs/06-architecture-ops.md).

@@ -1,226 +1,92 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
+import { DatabaseSync } from 'node:sqlite';
 
-const JOBS_DIR = path.join(os.tmpdir(), 'quick_filler_jobs');
+const dataDir = path.resolve(process.cwd(), 'data');
+fs.mkdirSync(dataDir, { recursive: true });
+const db = new DatabaseSync(path.join(dataDir, 'quick-filler.db'));
+db.exec(`
+  PRAGMA journal_mode = WAL;
+  CREATE TABLE IF NOT EXISTS transcription_jobs (
+    id TEXT PRIMARY KEY, tipo TEXT NOT NULL, status TEXT NOT NULL,
+    progress_json TEXT NOT NULL, erro TEXT, value_json TEXT,
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS transcription_pages (
+    job_id TEXT NOT NULL, page_number INTEGER NOT NULL, value_json TEXT NOT NULL,
+    completed_at TEXT NOT NULL, PRIMARY KEY (job_id, page_number)
+  );
+`);
+const getStatement = db.prepare('SELECT * FROM transcription_jobs WHERE id = ?');
+const pageStatement = db.prepare('SELECT page_number, value_json FROM transcription_pages WHERE job_id = ? ORDER BY page_number');
 
-function ensureJobsDir() {
-  if (!fs.existsSync(JOBS_DIR)) {
-    try {
-      fs.mkdirSync(JOBS_DIR, { recursive: true });
-    } catch (_) {}
-  }
+function hydrate(row) {
+  if (!row) return null;
+  return { id: row.id, tipo: row.tipo, status: row.status, progress: JSON.parse(row.progress_json), erro: row.erro, value: row.value_json ? JSON.parse(row.value_json) : null, createdAt: row.created_at, updatedAt: row.updated_at };
 }
 
-function saveJobToDisk(job) {
-  if (!job || !job.id) return;
-  try {
-    ensureJobsDir();
-    const filePath = path.join(JOBS_DIR, `${job.id}.json`);
-    fs.writeFileSync(filePath, JSON.stringify(job), 'utf8');
-  } catch (err) {
-    console.error(`⚠️ Erro ao salvar job ${job.id} no disco:`, err.message);
-  }
-}
-
-function readJobFromDisk(id) {
-  if (!id) return null;
-  try {
-    const filePath = path.join(JOBS_DIR, `${id}.json`);
-    if (fs.existsSync(filePath)) {
-      const content = fs.readFileSync(filePath, 'utf8');
-      return JSON.parse(content);
-    }
-  } catch (err) {
-    console.error(`⚠️ Erro ao ler job ${id} do disco:`, err.message);
-  }
-  return null;
-}
-
-function removeJobFromDisk(id) {
-  if (!id) return;
-  try {
-    const filePath = path.join(JOBS_DIR, `${id}.json`);
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-    }
-  } catch (_) {}
-}
-
-/**
- * Gerenciador de armazenamento em memória e disco para o ciclo de vida das transcrições.
- * Suporta estados: 'processando', 'concluido', 'erro'.
- */
 export class TranscriptionStore {
-  constructor() {
-    /** @type {Map<string, { id: string, tipo: string, status: 'processando'|'concluido'|'erro', erro: string|null, value: Object|null, createdAt: string, updatedAt: string }>} */
-    this.jobs = new Map();
-  }
+  constructor() { this.jobs = new Map(); }
 
-  /**
-   * Cria um novo trabalho de transcrição no estado 'processando'.
-   * @param {'cartao-ponto' | 'holerite'} tipo 
-   * @returns {{ id: string, tipo: string, status: string, erro: null, value: null }}
-   */
   createJob(tipo) {
     const id = randomUUID().substring(0, 8);
     const now = new Date().toISOString();
-
-    const job = {
-      id,
-      tipo,
-      status: 'processando',
-      progress: {
-        current: 0,
-        total: 0,
-        percentage: 0,
-        message: 'Iniciando leitura do documento...',
-        logs: [`[${new Date().toLocaleTimeString('pt-BR')}] 🚀 Trabalho de transcrição iniciado (ID: ${id})`]
-      },
-      erro: null,
-      value: null,
-      createdAt: now,
-      updatedAt: now
-    };
-
+    const job = { id, tipo, status: 'processando', progress: { current: 0, total: 0, percentage: 0, message: 'Iniciando leitura do documento...', logs: [`[${new Date().toLocaleTimeString('pt-BR')}] Trabalho de transcrição iniciado (ID: ${id})`] }, erro: null, value: null, createdAt: now, updatedAt: now };
+    db.prepare('INSERT INTO transcription_jobs VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(id, tipo, job.status, JSON.stringify(job.progress), null, null, now, now);
     this.jobs.set(id, job);
-    saveJobToDisk(job);
     return job;
   }
 
-  /**
-   * Atualiza o progresso em tempo real de um job.
-   * @param {string} id 
-   * @param {{ current?: number, total?: number, percentage?: number, message?: string, log?: string }} progressUpdate 
-   */
-  updateJobProgress(id, { current, total, percentage, message, log }) {
+  getJob(id) {
+    const job = hydrate(getStatement.get(id));
+    if (job) this.jobs.set(id, job);
+    return job;
+  }
+
+  persist(job) {
+    db.prepare('UPDATE transcription_jobs SET status=?, progress_json=?, erro=?, value_json=?, updated_at=? WHERE id=?').run(job.status, JSON.stringify(job.progress), job.erro, job.value ? JSON.stringify(job.value) : null, job.updatedAt, job.id);
+    this.jobs.set(job.id, job);
+    return job;
+  }
+
+  updateJobProgress(id, update) {
     const job = this.getJob(id);
     if (!job) return null;
-
-    const updatedLogs = [...(job.progress?.logs || [])];
-    if (log && typeof log === 'string') {
-      const timeStr = new Date().toLocaleTimeString('pt-BR');
-      updatedLogs.push(`[${timeStr}] ${log}`);
-    }
-
-    const currentProg = job.progress || {};
-    job.progress = {
-      current: current !== undefined ? current : currentProg.current || 0,
-      total: total !== undefined ? total : currentProg.total || 0,
-      percentage: percentage !== undefined ? percentage : currentProg.percentage || 0,
-      message: message || currentProg.message || 'Processando...',
-      logs: updatedLogs
-    };
-
+    const logs = [...(job.progress.logs || [])];
+    if (update.log) logs.push(`[${new Date().toLocaleTimeString('pt-BR')}] ${update.log}`);
+    job.progress = { current: update.current ?? job.progress.current ?? 0, total: update.total ?? job.progress.total ?? 0, percentage: update.percentage ?? job.progress.percentage ?? 0, message: update.message || job.progress.message || 'Processando...', logs };
     job.updatedAt = new Date().toISOString();
-    this.jobs.set(id, job);
-    saveJobToDisk(job);
-    return job;
+    return this.persist(job);
   }
 
-  /**
-   * Busca um job pelo ID (em memória ou no disco temporário).
-   * @param {string} id 
-   * @returns {Object|null}
-   */
-  getJob(id) {
-    let job = this.jobs.get(id);
-    if (!job) {
-      job = readJobFromDisk(id);
-      if (job) {
-        this.jobs.set(id, job);
-      }
-    }
-    return job || null;
+  savePageResult(id, pageNumber, value) {
+    if (!this.getJob(id)) return null;
+    db.prepare(`INSERT INTO transcription_pages VALUES (?, ?, ?, ?) ON CONFLICT(job_id, page_number) DO UPDATE SET value_json=excluded.value_json, completed_at=excluded.completed_at`).run(id, pageNumber, JSON.stringify(value), new Date().toISOString());
+    return value;
   }
 
-  /**
-   * Completa um trabalho com sucesso atualizando o campo 'value'.
-   * @param {string} id 
-   * @param {Object} value 
-   */
+  getPageResults(id) { return pageStatement.all(id).map(row => ({ page: row.page_number, value: JSON.parse(row.value_json) })); }
+
   completeJob(id, value) {
     const job = this.getJob(id);
     if (!job) return null;
-
-    const timeStr = new Date().toLocaleTimeString('pt-BR');
-    const updatedLogs = [...(job.progress?.logs || []), `[${timeStr}] 🎉 Processamento finalizado com sucesso!`];
-
-    job.status = 'concluido';
-    job.erro = null;
-    job.value = value;
-    job.progress = {
-      ...job.progress,
-      percentage: 100,
-      message: 'Transcrição e processamento concluídos!',
-      logs: updatedLogs
-    };
+    job.status = 'concluido'; job.erro = null; job.value = value;
+    job.progress = { ...job.progress, percentage: 100, message: 'Transcrição e processamento concluídos!', logs: [...(job.progress.logs || []), `[${new Date().toLocaleTimeString('pt-BR')}] Processamento finalizado com sucesso!`] };
     job.updatedAt = new Date().toISOString();
-    this.jobs.set(id, job);
-    saveJobToDisk(job);
-    return job;
+    return this.persist(job);
   }
 
-  /**
-   * Marca um trabalho com erro de processamento.
-   * @param {string} id 
-   * @param {string} errorMessage 
-   */
   failJob(id, errorMessage) {
     const job = this.getJob(id);
     if (!job) return null;
-
-    const timeStr = new Date().toLocaleTimeString('pt-BR');
-    const updatedLogs = [...(job.progress?.logs || []), `[${timeStr}] ❌ Erro: ${errorMessage || 'Falha no processamento'}`];
-
-    job.status = 'erro';
-    job.erro = errorMessage || 'Erro interno no processamento do documento';
-    job.value = null;
-    job.progress = {
-      ...job.progress,
-      message: 'Ocorreu um erro durante o processamento.',
-      logs: updatedLogs
-    };
+    job.status = 'erro'; job.erro = errorMessage || 'Erro interno no processamento do documento'; job.value = null;
+    job.progress = { ...job.progress, message: 'Ocorreu um erro durante o processamento.', logs: [...(job.progress.logs || []), `[${new Date().toLocaleTimeString('pt-BR')}] Erro: ${job.erro}`] };
     job.updatedAt = new Date().toISOString();
-    this.jobs.set(id, job);
-    saveJobToDisk(job);
-    return job;
+    return this.persist(job);
   }
 
-  /**
-   * Atualiza o campo 'value' de um job concluído (edições da UI).
-   * @param {string} id 
-   * @param {Object} newValue 
-   */
-  updateJobValue(id, newValue) {
-    const job = this.getJob(id);
-    if (!job) return null;
-
-    job.value = newValue;
-    job.updatedAt = new Date().toISOString();
-    this.jobs.set(id, job);
-    saveJobToDisk(job);
-    return job;
-  }
-
-  /**
-   * Limpa todos os jobs (útil para suíte de testes).
-   */
-  clear() {
-    this.jobs.clear();
-    try {
-      if (fs.existsSync(JOBS_DIR)) {
-        const files = fs.readdirSync(JOBS_DIR);
-        for (const file of files) {
-          if (file.endsWith('.json')) {
-            fs.unlinkSync(path.join(JOBS_DIR, file));
-          }
-        }
-      }
-    } catch (_) {}
-  }
+  updateJobValue(id, value) { const job = this.getJob(id); if (!job) return null; job.value = value; job.updatedAt = new Date().toISOString(); return this.persist(job); }
+  clear() { this.jobs.clear(); db.exec('DELETE FROM transcription_pages; DELETE FROM transcription_jobs;'); }
 }
-
 export const transcriptionStore = new TranscriptionStore();
-

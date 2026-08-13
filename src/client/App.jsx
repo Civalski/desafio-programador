@@ -6,10 +6,10 @@ import { ExportBar } from './components/ExportBar.jsx';
 import { TranscriptionProgress } from './components/TranscriptionProgress.jsx';
 import { LoginForm } from './components/LoginForm.jsx';
 
+const requiresLogin = import.meta.env.VITE_REQUIRE_LOGIN === 'true';
+
 export default function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    return sessionStorage.getItem('quick_filler_authenticated') === 'true';
-  });
+  const [isAuthenticated, setIsAuthenticated] = useState(() => !requiresLogin || sessionStorage.getItem('quick_filler_authenticated') === 'true');
 
   const [uploadedFile, setUploadedFile] = useState(null);
   const [tipo, setTipo] = useState('holerite');
@@ -141,7 +141,7 @@ export default function App() {
           </span>
         </div>
 
-        {isAuthenticated && (
+        {requiresLogin && isAuthenticated && (
           <button 
             className="btn-secondary logout-btn" 
             onClick={handleLogout}
@@ -157,7 +157,7 @@ export default function App() {
         )}
       </header>
 
-      {!isAuthenticated ? (
+      {requiresLogin && !isAuthenticated ? (
         <LoginForm onLoginSuccess={() => setIsAuthenticated(true)} />
       ) : (
         <main className="container" style={{ paddingTop: '2.5rem' }}>

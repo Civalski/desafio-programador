@@ -1,4 +1,5 @@
 import { PDFExtract } from 'pdf.js-extract';
+import '@napi-rs/canvas';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import fs from 'fs';
@@ -223,6 +224,7 @@ function extractRegionData(items = []) {
  */
 export async function extractPayrollLocalPdf(filePath, options = {}) {
   const onProgress = options.onProgress || (() => {});
+  const onPageCompleted = options.onPageCompleted || (() => {});
   if (!fs.existsSync(filePath)) {
     throw new Error(`Arquivo não encontrado: ${filePath}`);
   }
@@ -252,7 +254,7 @@ export async function extractPayrollLocalPdf(filePath, options = {}) {
         message: `Bloco ${bIdx + 1} de ${blocks.length} processado (${block.month}/${block.year})`,
         log: `✅ Bloco ${block.month}/${block.year}: ${localData.fields.length} verbas extraídas localmente.`
       });
-      return {
+      const result = {
         page: block.pageNum,
         month: block.month,
         year: block.year,
@@ -260,6 +262,8 @@ export async function extractPayrollLocalPdf(filePath, options = {}) {
         bases: localData.bases,
         totals: localData.totals
       };
+      onPageCompleted(result);
+      return result;
     });
     return { pages };
   }
@@ -308,7 +312,7 @@ export async function extractPayrollLocalPdf(filePath, options = {}) {
         return;
       }
 
-      pages.push({
+      const result = {
         page: pageIdx + 1,
         index: region.index,
         yStart: region.yStart,
@@ -318,7 +322,9 @@ export async function extractPayrollLocalPdf(filePath, options = {}) {
         fields: finalFields,
         bases: finalBases,
         isHorizontalSplit
-      });
+      };
+      pages.push(result);
+      onPageCompleted(result);
     });
 
     const pct = Math.min(95, Math.round(15 + ((pageIdx + 1) / totalPages) * 80));

@@ -1,0 +1,13 @@
+.git
+.agents
+.harness
+.env
+.env.*
+!.env.example
+node_modules
+dist
+tmp
+scratch
+output
+coverage
+npm-debug.log*
