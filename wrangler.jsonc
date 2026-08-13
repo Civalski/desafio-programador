@@ -1,0 +1,14 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "quick-filler-state",
+  "main": "cloudflare/state-worker.js",
+  "compatibility_date": "2026-08-12",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "quick-filler-production",
+      "database_id": "81a598fe-870c-4d0c-b83f-8fe5f343d0e2",
+      "migrations_dir": "migrations"
+    }
+  ]
+}

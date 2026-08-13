@@ -72,7 +72,7 @@ export async function transcriptionRoutes(fastify) {
     }
 
     // Cria o trabalho de transcrição no estado 'processando'
-    const job = transcriptionStore.createJob(tipo);
+    const job = await transcriptionStore.createJob(tipo);
 
     // Salva o buffer no sistema de arquivos temporário do sistema operacional (fora da pasta do projeto)
     const tempDir = os.tmpdir();
@@ -82,15 +82,15 @@ export async function transcriptionRoutes(fastify) {
     const processJob = async () => {
       try {
         const docTypeMapping = tipo === 'cartao-ponto' ? 'time_card' : 'payroll';
-        const onProgress = (progUpdate) => transcriptionStore.updateJobProgress(job.id, progUpdate);
-        const onPageCompleted = (page) => transcriptionStore.savePageResult(job.id, page.page, page);
+        const onProgress = async (progUpdate) => transcriptionStore.updateJobProgress(job.id, progUpdate);
+        const onPageCompleted = async (page) => transcriptionStore.savePageResult(job.id, page.page, page);
         const parsedResult = await aiProviderService.parseDocument(tempFilePath, docTypeMapping, { onProgress, onPageCompleted });
 
         // Se o resultado for válido, conclui o job
-        transcriptionStore.completeJob(job.id, parsedResult);
+        await transcriptionStore.completeJob(job.id, parsedResult);
       } catch (error) {
         console.error(`❌ Erro no processamento assíncrono do job ${job.id}:`, error);
-        transcriptionStore.failJob(job.id, error.message || 'Falha no processamento do documento');
+        await transcriptionStore.failJob(job.id, error.message || 'Falha no processamento do documento');
       } finally {
         // Limpa o arquivo temporário
         if (fs.existsSync(tempFilePath)) {
@@ -118,7 +118,7 @@ export async function transcriptionRoutes(fastify) {
   // 2. GET /api/transcricoes/:id - Consulta de status e resultado
   fastify.get('/api/transcricoes/:id', async (request, reply) => {
     const { id } = request.params;
-    const job = transcriptionStore.getJob(id);
+    const job = await transcriptionStore.getJob(id);
 
     if (!job) {
       return reply.status(404).send({
@@ -139,7 +139,7 @@ export async function transcriptionRoutes(fastify) {
   // 3. PUT /api/transcricoes/:id - Atualização da transcrição com edições da UI
   fastify.put('/api/transcricoes/:id', async (request, reply) => {
     const { id } = request.params;
-    const job = transcriptionStore.getJob(id);
+    const job = await transcriptionStore.getJob(id);
 
     if (!job) {
       return reply.status(404).send({
@@ -154,7 +154,7 @@ export async function transcriptionRoutes(fastify) {
       });
     }
 
-    const updatedJob = transcriptionStore.updateJobValue(id, value);
+    const updatedJob = await transcriptionStore.updateJobValue(id, value);
 
     return reply.status(200).send({
       id: updatedJob.id,
@@ -168,7 +168,7 @@ export async function transcriptionRoutes(fastify) {
     const { id } = request.params;
     const { formato = 'xlsx' } = request.query || {};
 
-    const job = transcriptionStore.getJob(id);
+    const job = await transcriptionStore.getJob(id);
 
     if (!job) {
       return reply.status(404).send({

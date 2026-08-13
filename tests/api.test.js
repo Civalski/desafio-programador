@@ -40,8 +40,8 @@ test('Fastify HTTP API - AI Harness Spec 03 Contracts', async (t) => {
     await app.close();
   });
 
-  beforeEach(() => {
-    transcriptionStore.clear();
+  beforeEach(async () => {
+    await transcriptionStore.clear();
   });
 
   await t.test('GET /healthz - Healthcheck Endpoint', async () => {
@@ -167,8 +167,8 @@ test('Fastify HTTP API - AI Harness Spec 03 Contracts', async (t) => {
 
   await t.test('PUT /api/transcricoes/:id - Atualiza transcrição com correções da UI', async () => {
     // Cria job concluído manualmente
-    const job = transcriptionStore.createJob('holerite');
-    transcriptionStore.completeJob(job.id, {
+    const job = await transcriptionStore.createJob('holerite');
+    await transcriptionStore.completeJob(job.id, {
       pages: [{ page: 1, fields: [], bases: [] }]
     });
 
@@ -194,8 +194,8 @@ test('Fastify HTTP API - AI Harness Spec 03 Contracts', async (t) => {
   });
 
   await t.test('GET /api/transcricoes/:id/planilha - Exporta planilha em formato xlsx/csv/json', async () => {
-    const job = transcriptionStore.createJob('cartao-ponto');
-    transcriptionStore.completeJob(job.id, {
+    const job = await transcriptionStore.createJob('cartao-ponto');
+    await transcriptionStore.completeJob(job.id, {
       pages: [
         {
           page: 1,
@@ -234,8 +234,8 @@ test('Fastify HTTP API - AI Harness Spec 03 Contracts', async (t) => {
   });
 
   await t.test('GET /api/transcricoes/:id - Recupera job persistido no disco após limpeza da memória', async () => {
-    const job = transcriptionStore.createJob('holerite');
-    transcriptionStore.completeJob(job.id, { test: 'disk_persistence' });
+    const job = await transcriptionStore.createJob('holerite');
+    await transcriptionStore.completeJob(job.id, { test: 'disk_persistence' });
 
     // Simula reinicialização do contêiner/memória sem apagar o arquivo do disco
     transcriptionStore.jobs.clear();

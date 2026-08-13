@@ -2,34 +2,34 @@ import OpenAI from 'openai';
 import fs from 'fs';
 import { config } from '../config/env.js';
 import { normalizePayrollResponse } from '../normalizers/payrollNormalizer.js';
-import { normalizeTimeCardResponse } from '../normalizers/timeCardNormalizer.js';
+import { normalizeTimeCardResponse, auditTimeCardPage } from '../normalizers/timeCardNormalizer.js';
 import { getMockData } from '../mocks/mockProvider.js';
 import { extractPayrollLocalPdf, rasterizePdfPages } from '../utils/pdfExtractor.js';
 import { detectFichaFinanceira, segmentAllMonthBlocks } from '../utils/fichaFinanceiraSegmenter.js';
-import { analyzePageDensity, selectExtractionStrategy } from '../utils/densityAnalyzer.js';
+import { analyzePageDensity, selectExtractionStrategy, selectTimeCardExtractionStrategy } from '../utils/densityAnalyzer.js';
 import { PDFExtract } from 'pdf.js-extract';
 
 const pdfExtract = new PDFExtract();
 
 /**
- * PROMPT UNIFICADO: Extrai identificação + competência + verbas em uma única chamada.
- * Isso garante que a data (mês/ano) sempre viaje junto das verbas, evitando o bug
- * onde a competência desaparece ao mesclar múltiplas páginas.
+ * PROMPT UNIFICADO: Extrai identificaÃ§Ã£o + competÃªncia + verbas em uma Ãºnica chamada.
+ * Isso garante que a data (mÃªs/ano) sempre viaje junto das verbas, evitando o bug
+ * onde a competÃªncia desaparece ao mesclar mÃºltiplas pÃ¡ginas.
  */
-const PROMPT_UNIFIED = `Você é um especialista em OCR e estruturação de Folhas de Pagamento (Holerites) brasileiros.
-Analise o texto desta página de holerite e extraia:
-1. A COMPETÊNCIA (mês e ano de referência do holerite) — OBRIGATÓRIO. Procure por textos como "Competência:", "Mês/Ano:", "Período:", "Referência:", ou padrões como "05/2024".
-2. Os dados do FUNCIONÁRIO e EMPRESA (cabeçalho).
+const PROMPT_UNIFIED = `VocÃª Ã© um especialista em OCR e estruturaÃ§Ã£o de Folhas de Pagamento (Holerites) brasileiros.
+Analise o texto desta pÃ¡gina de holerite e extraia:
+1. A COMPETÃŠNCIA (mÃªs e ano de referÃªncia do holerite) â€” OBRIGATÃ“RIO. Procure por textos como "CompetÃªncia:", "MÃªs/Ano:", "PerÃ­odo:", "ReferÃªncia:", ou padrÃµes como "05/2024".
+2. Os dados do FUNCIONÃRIO e EMPRESA (cabeÃ§alho).
 3. TODAS as VERBAS da tabela principal (Proventos e Descontos), SEM OMITIR NENHUMA.
 
-REGRAS CRÍTICAS:
-- "competency.month" DEVE conter o número do mês (01-12) da folha de pagamento.
-- "competency.year" DEVE conter o ano com 4 dígitos (ex: 2024).
-- NÃO confunda data de admissão, emissão, nascimento ou pagamento com a competência.
-- Para cada verba em "fields": "reference" = quantidade/horas/percentual; "value" = valor monetário R$.
-- "type" de cada verba deve ser "provento" se é crédito/adição, ou "desconto" se é débito/subtração.
-- NÃO inclua totais (Total Proventos, Total Descontos, Valor Líquido) em "fields".
-- Se algum campo não existir no documento, use null ou string vazia — NUNCA invente dados.
+REGRAS CRÃTICAS:
+- "competency.month" DEVE conter o nÃºmero do mÃªs (01-12) da folha de pagamento.
+- "competency.year" DEVE conter o ano com 4 dÃ­gitos (ex: 2024).
+- NÃƒO confunda data de admissÃ£o, emissÃ£o, nascimento ou pagamento com a competÃªncia.
+- Para cada verba em "fields": "reference" = quantidade/horas/percentual; "value" = valor monetÃ¡rio R$.
+- "type" de cada verba deve ser "provento" se Ã© crÃ©dito/adiÃ§Ã£o, ou "desconto" se Ã© dÃ©bito/subtraÃ§Ã£o.
+- NÃƒO inclua totais (Total Proventos, Total Descontos, Valor LÃ­quido) em "fields".
+- Se algum campo nÃ£o existir no documento, use null ou string vazia â€” NUNCA invente dados.
 
 Formato JSON estrito:
 {
@@ -44,110 +44,110 @@ Formato JSON estrito:
     "branch": "Filial ou null"
   },
   "employee": {
-    "name": "Nome do Funcionário",
+    "name": "Nome do FuncionÃ¡rio",
     "cpf": "CPF ou null",
-    "registration": "Matrícula ou null",
+    "registration": "MatrÃ­cula ou null",
     "role": "Cargo ou null",
     "department": "Departamento ou null",
     "admissionDate": "DD/MM/YYYY ou null"
   },
   "bankInfo": {
     "bank": "Banco ou null",
-    "agency": "Agência ou null",
+    "agency": "AgÃªncia ou null",
     "account": "Conta ou null"
   },
   "fields": [
     {
-      "code": "Código numérico ou null",
-      "label": "Descrição exata da verba como aparece no documento",
+      "code": "CÃ³digo numÃ©rico ou null",
+      "label": "DescriÃ§Ã£o exata da verba como aparece no documento",
       "reference": "Qtd/Horas/Percentual ou null",
-      "value": "Valor monetário R$ (ex: 3.200,00)",
+      "value": "Valor monetÃ¡rio R$ (ex: 3.200,00)",
       "type": "provento ou desconto"
     }
   ]
 }`;
 
 /**
- * PROMPT DE TOTAIS: Extrai exclusivamente rodapé (totais, bases, encargos).
- * Explicitamente instruído a NÃO repetir itens que já são verbas individuais.
+ * PROMPT DE TOTAIS: Extrai exclusivamente rodapÃ© (totais, bases, encargos).
+ * Explicitamente instruÃ­do a NÃƒO repetir itens que jÃ¡ sÃ£o verbas individuais.
  */
-const PROMPT_TOTALS = `Você é um especialista em OCR e estruturação de Folhas de Pagamento (Holerites) brasileiros.
-Analise o texto desta página e extraia APENAS os dados do RODAPÉ da folha:
-1. Os totais consolidados (Total Proventos, Total Descontos, Valor Líquido)
-2. As bases de cálculo (Base INSS, Base IRRF, Base FGTS, FGTS do Mês etc.)
+const PROMPT_TOTALS = `VocÃª Ã© um especialista em OCR e estruturaÃ§Ã£o de Folhas de Pagamento (Holerites) brasileiros.
+Analise o texto desta pÃ¡gina e extraia APENAS os dados do RODAPÃ‰ da folha:
+1. Os totais consolidados (Total Proventos, Total Descontos, Valor LÃ­quido)
+2. As bases de cÃ¡lculo (Base INSS, Base IRRF, Base FGTS, FGTS do MÃªs etc.)
 
-REGRAS CRÍTICAS:
-- NÃO inclua verbas individuais (ex: Salário Base, Vale Transporte, Horas Extras) — apenas totais e bases.
-- Se um item é uma verba individual da tabela principal, IGNORE-O aqui.
-- "bases" deve conter APENAS linhas de rodapé como: Base INSS, Base IRRF, Base FGTS, FGTS do Mês, Alíquota IRRF.
-- Se um campo não existir no documento, use null — NUNCA invente valores.
+REGRAS CRÃTICAS:
+- NÃƒO inclua verbas individuais (ex: SalÃ¡rio Base, Vale Transporte, Horas Extras) â€” apenas totais e bases.
+- Se um item Ã© uma verba individual da tabela principal, IGNORE-O aqui.
+- "bases" deve conter APENAS linhas de rodapÃ© como: Base INSS, Base IRRF, Base FGTS, FGTS do MÃªs, AlÃ­quota IRRF.
+- Se um campo nÃ£o existir no documento, use null â€” NUNCA invente valores.
 
 Formato JSON estrito:
 {
   "totals": {
     "totalAdditions": "Total de Proventos R$ ou null",
     "totalDeductions": "Total de Descontos R$ ou null",
-    "netValue": "Valor Líquido R$ ou null"
+    "netValue": "Valor LÃ­quido R$ ou null"
   },
   "bases": [
     { "label": "Nome exato da base (ex: Base INSS)", "value": "Valor R$" }
   ]
 }`;
 
-const PROMPT_FICHA_FINANCEIRA_BLOCK = `Você é um especialista em OCR e estruturação de Fichas Financeiras e Holerites brasileiros.
-Analise o texto deste bloco mensal da Ficha Financeira e extraia TODAS as verbas (Proventos e Descontos), Totais e Bases de Cálculo.
+const PROMPT_FICHA_FINANCEIRA_BLOCK = `VocÃª Ã© um especialista em OCR e estruturaÃ§Ã£o de Fichas Financeiras e Holerites brasileiros.
+Analise o texto deste bloco mensal da Ficha Financeira e extraia TODAS as verbas (Proventos e Descontos), Totais e Bases de CÃ¡lculo.
 
 ESTRUTURA JSON ESPERADA:
 {
   "fields": [
     {
-      "code": "código da verba (ex: 001, 091, 511)",
-      "label": "descrição da verba (ex: Salário Base, Hr Adic Pericul, INSS Normal)",
-      "reference": "referência ou horas/dias/percentual (ex: 220,00, 146,67, 11%)",
-      "value": "valor monetário (ex: 1.620,65)",
+      "code": "cÃ³digo da verba (ex: 001, 091, 511)",
+      "label": "descriÃ§Ã£o da verba (ex: SalÃ¡rio Base, Hr Adic Pericul, INSS Normal)",
+      "reference": "referÃªncia ou horas/dias/percentual (ex: 220,00, 146,67, 11%)",
+      "value": "valor monetÃ¡rio (ex: 1.620,65)",
       "type": "provento" ou "desconto"
     }
   ],
   "bases": [
     {
-      "label": "nome da base ou valor de referência (ex: Base INSS, Base IRRF, Base FGTS, FGTS do Mês)",
-      "value": "valor monetário (ex: 1.260,65)"
+      "label": "nome da base ou valor de referÃªncia (ex: Base INSS, Base IRRF, Base FGTS, FGTS do MÃªs)",
+      "value": "valor monetÃ¡rio (ex: 1.260,65)"
     }
   ],
   "totals": {
     "totalAdditions": "Total Proventos / Rendimentos",
     "totalDeductions": "Total Descontos",
-    "netValue": "Valor Líquido no Mês"
+    "netValue": "Valor LÃ­quido no MÃªs"
   }
 }
 
 REGRAS:
-- Proventos (créditos) devem ter "type": "provento".
-- Descontos (débitos) devem ter "type": "desconto".
-- NÃO omita nenhuma verba do bloco.
-- NÃO invente dados.
+- Proventos (crÃ©ditos) devem ter "type": "provento".
+- Descontos (dÃ©bitos) devem ter "type": "desconto".
+- NÃƒO omita nenhuma verba do bloco.
+- NÃƒO invente dados.
 `;
 
 /**
- * PROMPT DE PASSAGEM ÚNICA (SINGLE-PASS):
- * Extrai identificação + competência + verbas + totais + bases em 1 única chamada API.
- * Usado para economizar 50% de tokens em documentos de densidade baixa/média.
+ * PROMPT DE PASSAGEM ÃšNICA (SINGLE-PASS):
+ * Extrai identificaÃ§Ã£o + competÃªncia + verbas + totais + bases em 1 Ãºnica chamada API.
+ * Usado para economizar 50% de tokens em documentos de densidade baixa/mÃ©dia.
  */
-const PROMPT_SINGLE_PASS = `Você é um especialista em OCR e estruturação de Folhas de Pagamento (Holerites) brasileiros.
-Analise o texto desta página de holerite e extraia TODOS os dados estruturados:
+const PROMPT_SINGLE_PASS = `VocÃª Ã© um especialista em OCR e estruturaÃ§Ã£o de Folhas de Pagamento (Holerites) brasileiros.
+Analise o texto desta pÃ¡gina de holerite e extraia TODOS os dados estruturados:
 
-1. COMPETÊNCIA (mês e ano de referência) — OBRIGATÓRIO.
-2. DADOS DO FUNCIONÁRIO, EMPRESA E DADOS BANCÁRIOS.
+1. COMPETÃŠNCIA (mÃªs e ano de referÃªncia) â€” OBRIGATÃ“RIO.
+2. DADOS DO FUNCIONÃRIO, EMPRESA E DADOS BANCÃRIOS.
 3. TODAS AS VERBAS da tabela principal (Proventos e Descontos), SEM OMITIR NENHUMA.
-4. TOTAIS DO RODAPÉ (Total Proventos, Total Descontos, Valor Líquido).
-5. BASES DE CÁLCULO (Base INSS, Base IRRF, Base FGTS, FGTS do Mês, etc.).
+4. TOTAIS DO RODAPÃ‰ (Total Proventos, Total Descontos, Valor LÃ­quido).
+5. BASES DE CÃLCULO (Base INSS, Base IRRF, Base FGTS, FGTS do MÃªs, etc.).
 
-REGRAS CRÍTICAS:
-- "competency.month" DEVE conter o mês (01-12) e "competency.year" o ano com 4 dígitos (ex: 2024).
-- Para cada verba em "fields": "reference" = quantidade/horas/percentual; "value" = valor monetário R$.
+REGRAS CRÃTICAS:
+- "competency.month" DEVE conter o mÃªs (01-12) e "competency.year" o ano com 4 dÃ­gitos (ex: 2024).
+- Para cada verba em "fields": "reference" = quantidade/horas/percentual; "value" = valor monetÃ¡rio R$.
 - "type" de cada verba deve ser "provento" ou "desconto".
-- NÃO inclua totais ou bases dentro do array "fields".
-- Se um campo não existir, use null ou string vazia — NUNCA invente dados.
+- NÃƒO inclua totais ou bases dentro do array "fields".
+- Se um campo nÃ£o existir, use null ou string vazia â€” NUNCA invente dados.
 
 Formato JSON estrito:
 {
@@ -162,37 +162,40 @@ Formato JSON estrito:
     "branch": "Filial ou null"
   },
   "employee": {
-    "name": "Nome do Funcionário",
+    "name": "Nome do FuncionÃ¡rio",
     "cpf": "CPF ou null",
-    "registration": "Matrícula ou null",
+    "registration": "MatrÃ­cula ou null",
     "role": "Cargo ou null",
     "department": "Departamento ou null",
     "admissionDate": "DD/MM/YYYY ou null"
   },
   "bankInfo": {
     "bank": "Banco ou null",
-    "agency": "Agência ou null",
+    "agency": "AgÃªncia ou null",
     "account": "Conta ou null"
   },
   "fields": [
     {
-      "code": "Código numérico ou null",
-      "label": "Descrição exata da verba",
+      "code": "CÃ³digo numÃ©rico ou null",
+      "label": "DescriÃ§Ã£o exata da verba",
       "reference": "Qtd/Horas/Percentual ou null",
-      "value": "Valor monetário R$",
+      "value": "Valor monetÃ¡rio R$",
       "type": "provento ou desconto"
     }
   ],
   "totals": {
     "totalAdditions": "Total Proventos R$ ou null",
     "totalDeductions": "Total Descontos R$ ou null",
-    "netValue": "Valor Líquido R$ ou null"
+    "netValue": "Valor LÃ­quido R$ ou null"
   },
   "bases": [
     { "label": "Nome exato da base (ex: Base INSS)", "value": "Valor R$" }
   ]
 }`;
 
+const PROMPT_TIME_CARD = `Você transcreve cartões de ponto brasileiros. Retorne somente JSON. Preserve estritamente a ordem visual de cima para baixo e inclua todos os dias impressos, inclusive sem batidas. Extraia apenas texto visualmente legível: se data ou horário estiver ilegível ou impreciso, use string vazia. Nunca invente, deduza ou complete horários. Batidas devem alternar IN, OUT conforme a ordem visual.
+Formato: {"days":[{"date_raw":"DD/MM/AAAA ou vazio","punches":[{"kind":"IN ou OUT","time_raw":"HH:MM ou vazio"}]}]}`;
+const PROMPT_TIME_CARD_REVIEW = `Revise a transcrição de cartão de ponto abaixo contra a página fornecida. Corrija somente usando evidência visual. Preserve todas as linhas existentes e a ordem; preencha campo sem leitura confiável com string vazia. Retorne somente {"days":[...]}.`;
 function parseCurrency(value) {
   if (value === null || value === undefined || value === '') return null;
   const normalized = String(value).replace(/[^\d,.-]/g, '').replace(/\./g, '').replace(',', '.');
@@ -217,14 +220,14 @@ export class OpenAIService {
   initClient() {
     const key = this.apiKey || process.env.OPENAI_SECRET_KEY || process.env.OPENAI_API_KEY;
     if (!key) {
-      console.warn('⚠️ Alerta: OPENAI_SECRET_KEY não configurada.');
+      console.warn('âš ï¸ Alerta: OPENAI_SECRET_KEY nÃ£o configurada.');
       return;
     }
 
     try {
       this.client = new OpenAI({ apiKey: key });
     } catch (error) {
-      console.error('❌ Erro ao inicializar o cliente OpenAI:', error.message);
+      console.error('âŒ Erro ao inicializar o cliente OpenAI:', error.message);
     }
   }
 
@@ -246,7 +249,7 @@ export class OpenAIService {
 
     for (const model of models) {
       try {
-        console.log(`🤖 Executando requisição OpenAI com modelo: ${model}`);
+        console.log(`ðŸ¤– Executando requisiÃ§Ã£o OpenAI com modelo: ${model}`);
         const requestParams = {
           model,
           messages,
@@ -261,7 +264,7 @@ export class OpenAIService {
         const response = await this.client.chat.completions.create(requestParams);
         return response.choices[0]?.message?.content || '{}';
       } catch (err) {
-        console.warn(`⚠️ Modelo OpenAI ${model} falhou ou sofreu limitação (${err.message}). Tentando modelo seguinte...`);
+        console.warn(`âš ï¸ Modelo OpenAI ${model} falhou ou sofreu limitaÃ§Ã£o (${err.message}). Tentando modelo seguinte...`);
         lastError = err;
       }
     }
@@ -269,7 +272,7 @@ export class OpenAIService {
   }
 
   /**
-   * Extrai o conteúdo preservando colunas espaciais separado por páginas
+   * Extrai o conteÃºdo preservando colunas espaciais separado por pÃ¡ginas
    */
   async extractPdfTextPages(filePath) {
     const data = await new Promise((resolve, reject) => {
@@ -317,7 +320,7 @@ export class OpenAIService {
 
   /**
    * Envia o PDF de Holerite (Payroll) para a API da OpenAI e retorna o DTO normalizado.
-   * Processa página por página para garantir 100% de cobertura sem omissão de verbas.
+   * Processa pÃ¡gina por pÃ¡gina para garantir 100% de cobertura sem omissÃ£o de verbas.
    */
   async parsePayroll(filePath, options = {}) {
     const onProgress = options.onProgress || (() => {});
@@ -325,14 +328,14 @@ export class OpenAIService {
     let scannedPageNumbers = [];
     try {
       if (!fs.existsSync(filePath)) {
-        throw new Error(`Arquivo não encontrado: ${filePath}`);
+        throw new Error(`Arquivo nÃ£o encontrado: ${filePath}`);
       }
 
       onProgress({ current: 0, total: 0, percentage: 5, message: 'Lendo arquivo PDF e analisando layout...', log: 'Arquivo PDF carregado no servidor. Analisando estrutura...' });
 
       if (this.isReady() && !options.useMock) {
         try {
-          // Extrai o PDF bruto via pdfExtract para verificar se é Ficha Financeira
+          // Extrai o PDF bruto via pdfExtract para verificar se Ã© Ficha Financeira
           const pdfRawData = await new Promise((resolve, reject) => {
             pdfExtract.extract(filePath, {}, (err, res) => {
               if (err) return reject(err);
@@ -344,7 +347,7 @@ export class OpenAIService {
 
           if (isFicha) {
             const blocks = segmentAllMonthBlocks(pdfRawData.pages);
-            console.log(`📄 Documento identificado como Ficha Financeira: ${blocks.length} blocos mensais detectados.`);
+            console.log(`ðŸ“„ Documento identificado como Ficha Financeira: ${blocks.length} blocos mensais detectados.`);
             onProgress({
               current: 0,
               total: blocks.length,
@@ -356,13 +359,13 @@ export class OpenAIService {
             let completedBlocks = 0;
             const blockPromises = blocks.map(async (block, bIdx) => {
               try {
-                console.log(`🔍 [OpenAI] Extraindo bloco ${bIdx + 1}/${blocks.length}: Competência ${block.month}/${block.year} (Pág ${block.pageNum})...`);
+                console.log(`ðŸ” [OpenAI] Extraindo bloco ${bIdx + 1}/${blocks.length}: CompetÃªncia ${block.month}/${block.year} (PÃ¡g ${block.pageNum})...`);
 
                 const completionJson = await this.generateCompletionWithFallback([
                   { role: 'system', content: PROMPT_FICHA_FINANCEIRA_BLOCK },
                   {
                     role: 'user',
-                    content: `COMPETÊNCIA DO BLOCO: ${block.month}/${block.year}\n\nTEXTO DO BLOCO:\n${block.rawText}`
+                    content: `COMPETÃŠNCIA DO BLOCO: ${block.month}/${block.year}\n\nTEXTO DO BLOCO:\n${block.rawText}`
                   }
                 ]);
 
@@ -389,7 +392,7 @@ export class OpenAIService {
                   totals: parsed.totals || {},
                   bases: parsed.bases || []
                 };
-                onPageCompleted(result);
+                await onPageCompleted(result);
 
                 completedBlocks++;
                 const pct = Math.min(95, Math.round(10 + (completedBlocks / blocks.length) * 85));
@@ -398,18 +401,18 @@ export class OpenAIService {
                   current: completedBlocks,
                   total: blocks.length,
                   percentage: pct,
-                  message: `Bloco ${completedBlocks} de ${blocks.length} concluído (${block.month}/${block.year})`,
+                  message: `Bloco ${completedBlocks} de ${blocks.length} concluÃ­do (${block.month}/${block.year})`,
                   log: `Bloco ${block.month}/${block.year}: ${fields.length} verbas e ${result.bases.length} bases extraidas.`
                 });
 
                 return result;
               } catch (err) {
-                console.warn(`⚠️ Falha na extração do bloco ${block.month}/${block.year} via OpenAI:`, err.message);
+                console.warn(`âš ï¸ Falha na extraÃ§Ã£o do bloco ${block.month}/${block.year} via OpenAI:`, err.message);
                 completedBlocks++;
                 onProgress({
                   current: completedBlocks,
                   total: blocks.length,
-                  message: `Falha na extração do bloco ${block.month}/${block.year}`,
+                  message: `Falha na extraÃ§Ã£o do bloco ${block.month}/${block.year}`,
                   log: `Erro no bloco ${block.month}/${block.year}: ${err.message}`
                 });
                 return null;
@@ -425,7 +428,7 @@ export class OpenAIService {
             }
           }
 
-          // Caso padrão (Holerite comum por página)
+          // Caso padrÃ£o (Holerite comum por pÃ¡gina)
           const pdfPages = await this.extractPdfTextPages(filePath);
           const totalPages = pdfPages.length;
           scannedPageNumbers = pdfPages
@@ -443,12 +446,12 @@ export class OpenAIService {
             });
             scannedImages = await rasterizePdfPages(filePath, scannedPageNumbers, { scale: 2 });
           }
-          console.log(`📄 Processando ${totalPages} páginas de holerite em paralelo via OpenAI...`);
+          console.log(`ðŸ“„ Processando ${totalPages} pÃ¡ginas de holerite em paralelo via OpenAI...`);
           onProgress({
             current: 0,
             total: totalPages,
             percentage: 10,
-            message: `PDF possui ${totalPages} página(s). Extraindo dados via OpenAI...`,
+            message: `PDF possui ${totalPages} pÃ¡gina(s). Extraindo dados via OpenAI...`,
             log: `PDF possui ${totalPages} pagina(s). Iniciando analise com IA...`
           });
 
@@ -503,7 +506,7 @@ export class OpenAIService {
                 unifiedData = uData || {};
                 totalsData = tData || {};
               }
-              // Lê competência do formato novo (competency.month/year)
+              // LÃª competÃªncia do formato novo (competency.month/year)
               const competency = unifiedData.competency || {};
               const month = competency.month || unifiedData.month || '';
               const year = competency.year || unifiedData.year || '';
@@ -530,27 +533,27 @@ export class OpenAIService {
                 totals: totalsData.totals || {},
                 bases: totalsData.bases || []
               };
-              onPageCompleted(result);
+              await onPageCompleted(result);
 
               completedPages++;
               const pct = Math.min(95, Math.round(10 + (completedPages / totalPages) * 85));
-              console.log(`✅ Página ${pageObj.pageNum}: Competência ${month}/${year} | Verbas: ${fields.length} | Bases: ${result.bases.length}`);
+              console.log(`âœ… PÃ¡gina ${pageObj.pageNum}: CompetÃªncia ${month}/${year} | Verbas: ${fields.length} | Bases: ${result.bases.length}`);
               onProgress({
                 current: completedPages,
                 total: totalPages,
                 percentage: pct,
-                message: `Página ${completedPages} de ${totalPages} concluída`,
+                message: `PÃ¡gina ${completedPages} de ${totalPages} concluÃ­da`,
                 log: `${isVision ? 'Visao IA' : 'IA'} - Pagina ${pageObj.pageNum}: ${fields.length} verbas extraidas via modelo.`
               });
 
               return result;
             } catch (err) {
-              console.warn(`⚠️ Falha na extração da página ${pageObj.pageNum} via OpenAI:`, err.message);
+              console.warn(`âš ï¸ Falha na extraÃ§Ã£o da pÃ¡gina ${pageObj.pageNum} via OpenAI:`, err.message);
               completedPages++;
               onProgress({
                 current: completedPages,
                 total: totalPages,
-                message: `Falha na extração da página ${pageObj.pageNum}`,
+                message: `Falha na extraÃ§Ã£o da pÃ¡gina ${pageObj.pageNum}`,
                 log: `Erro na pagina ${pageObj.pageNum}: ${err.message}`
               });
               return null;
@@ -569,7 +572,7 @@ export class OpenAIService {
           }
         } catch (apiErr) {
           if (apiErr.message?.startsWith('VISION_EXTRACTION_UNAVAILABLE:')) throw apiErr;
-          console.warn(`⚠️ API da OpenAI falhou (${apiErr.message}). Utilizando extrator local em PDF...`);
+          console.warn(`âš ï¸ API da OpenAI falhou (${apiErr.message}). Utilizando extrator local em PDF...`);
           onProgress({ current: 0, total: 0, percentage: 10, message: 'Utilizando extrator local de PDF...', log: `OpenAI indisponivel (${apiErr.message}). Recorrendo ao extrator local.` });
         }
       }
@@ -580,13 +583,13 @@ export class OpenAIService {
 
       const hasFields = normalizedLocal.pages?.some(p => p.fields && p.fields.length > 0);
       if (!hasFields && scannedPageNumbers.length > 0) {
-        throw new Error('PDF escaneado/imagem detectado (payroll-04.pdf). Não foi possível extrair dados via OpenAI Vision nem pelo extrator local.');
+        throw new Error('PDF escaneado/imagem detectado (payroll-04.pdf). NÃ£o foi possÃ­vel extrair dados via OpenAI Vision nem pelo extrator local.');
       }
 
       return normalizedLocal;
 
     } catch (error) {
-      console.error(`❌ Erro no parsing via OpenAI (${filePath}):`, error.message);
+      console.error(`âŒ Erro no parsing via OpenAI (${filePath}):`, error.message);
       if (error.message?.includes('VISION_EXTRACTION') || error.message?.includes('OPENAI') || error.message?.includes('PDF escaneado')) {
         throw error;
       }
@@ -595,29 +598,44 @@ export class OpenAIService {
   }
 
   /**
-   * Envia o PDF de Cartão de Ponto para a API da OpenAI e retorna o DTO normalizado.
+   * Envia o PDF de CartÃ£o de Ponto para a API da OpenAI e retorna o DTO normalizado.
    */
   async parseTimeCard(filePath, options = {}) {
-    try {
-      if (!fs.existsSync(filePath)) {
-        throw new Error(`Arquivo não encontrado: ${filePath}`);
+    if (!fs.existsSync(filePath)) throw new Error(`Arquivo não encontrado: ${filePath}`);
+    if (!this.isReady() && !options.useMock) throw new Error('A extração de cartão de ponto requer OPENAI_API_KEY; não há fallback com dados simulados.');
+    if (options.useMock) return normalizeTimeCardResponse(getMockData(filePath, 'time_card'));
+    const onProgress = options.onProgress || (() => {});
+    const onPageCompleted = options.onPageCompleted || (() => {});
+    const pages = await this.extractPdfTextPages(filePath);
+    const visionPages = pages.filter(page => selectTimeCardExtractionStrategy(page.density) === 'VISION_SINGLE_PASS').map(page => page.pageNum);
+    const images = visionPages.length ? await rasterizePdfPages(filePath, visionPages, { scale: 2 }) : new Map();
+    let completed = 0;
+    onProgress({ current: 0, total: pages.length, percentage: 10, message: 'Analisando páginas do cartão de ponto...' });
+    const results = await Promise.all(pages.map(async page => {
+      const strategy = selectTimeCardExtractionStrategy(page.density);
+      const vision = strategy === 'VISION_SINGLE_PASS';
+      const input = vision ? [{ type: 'text', text: 'Transcreva esta imagem de cartão de ponto.' }, { type: 'image_url', image_url: { url: images.get(page.pageNum)?.dataUrl, detail: 'high' } }] : page.text;
+      const run = async prompt => { const raw = await this.generateCompletionWithFallback([{ role: 'system', content: prompt }, { role: 'user', content: input }]); try { return JSON.parse(raw); } catch { return {}; } };
+      let normalized = normalizeTimeCardResponse({ pages: [{ page: page.pageNum, ...(await run(PROMPT_TIME_CARD)) }] }).pages[0];
+      const audit = auditTimeCardPage(normalized);
+      if (strategy === 'DUAL_PASS' || audit.needsReview) {
+        const reviewed = await run(`${PROMPT_TIME_CARD_REVIEW}\nMotivos: ${audit.reasons.join('; ')}`);
+        normalized = normalizeTimeCardResponse({ pages: [{ page: page.pageNum, ...reviewed }] }).pages[0];
       }
-      const mockRaw = getMockData(filePath, 'time_card');
-      return normalizeTimeCardResponse(mockRaw);
-    } catch (error) {
-      console.error(`❌ Erro no parsing de Cartão de Ponto via OpenAI (${filePath}):`, error.message);
-      const fallbackRaw = getMockData(filePath, 'time_card');
-      return normalizeTimeCardResponse(fallbackRaw);
-    }
+      completed++;
+      onPageCompleted(normalized);
+      onProgress({ current: completed, total: pages.length, percentage: Math.min(95, Math.round(10 + completed / pages.length * 85)), message: `Página ${completed} de ${pages.length} concluída` });
+      return normalized;
+    }));
+    return normalizeTimeCardResponse({ pages: results });
   }
-
   async parseDocument(filePath, documentType, options = {}) {
     if (documentType === 'time_card') {
       return this.parseTimeCard(filePath, options);
     } else if (documentType === 'payroll') {
       return this.parsePayroll(filePath, options);
     } else {
-      throw new Error(`Tipo de documento não suportado: ${documentType}`);
+      throw new Error(`Tipo de documento nÃ£o suportado: ${documentType}`);
     }
   }
 }
