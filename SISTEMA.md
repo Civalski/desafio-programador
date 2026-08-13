@@ -166,8 +166,8 @@ Variáveis relevantes:
 | Variável | Uso |
 |---|---|
 | `OPENAI_API_KEY` ou `OPENAI_SECRET_KEY` | Obrigatória para qualquer transcrição, textual ou Vision |
-| `OPENAI_PAYROLL_MODEL` | Modelo primário de extração; padrão `gpt-5.6-sol` |
-| `OPENAI_PAYROLL_FALLBACK_MODEL` | Fallback explícito de qualidade; padrão `gpt-4o` |
+| `OPENAI_PAYROLL_MODEL` | Modelo primário de extração; padrão `gpt-5.6-luna` |
+| `OPENAI_PAYROLL_FALLBACK_MODEL` | Fallback explícito de qualidade; padrão `gpt-5.6-sol` |
 | `OPENAI_VISION_SCALE` | Escala inicial de rasterização; padrão `2`, elevada automaticamente quando a cobertura visual é insuficiente |
 | `PORT`, `HOST`, `LOG_LEVEL` | Configuração do servidor Fastify |
 | `APP_ENV=production` / `VERCEL` | Ativa o modo de produção |
@@ -175,6 +175,7 @@ Variáveis relevantes:
 | `STATE_API_TIMEOUT_MS` | Timeout para chamadas ao Worker de estado |
 | `TRANSCRIPTION_RETENTION_HOURS` | Retenção no armazenamento local |
 | `SAVED_EXTRACTION_RETENTION_DAYS` | Validade de jobs e arquivos persistidos |
+| `AUTH_USERNAME`, `AUTH_PASSWORD`, `AUTH_SESSION_SECRET` | Ativam o login. Configure os três em produção; a sessão é armazenada em cookie HTTP-only assinado. |
 
 Comandos de verificação úteis: `npm test`, `npm run benchmark:payroll01` e `npm run build`.
 

@@ -1,260 +1,60 @@
-import os from 'node:os';
-import fs from 'node:fs';
-import path from 'node:path';
 import { waitUntil } from '@vercel/functions';
-import { transcriptionStore } from '../services/transcriptionStore.js';
-import { aiProviderService } from '../services/aiProvider.js';
-import { generateExport } from '../utils/exportUtils.js';
-import { PDFExtract } from 'pdf.js-extract';
+import { ApplicationError } from '../application/errors.js';
 
-const pdfExtract = new PDFExtract();
-const isReadablePdf = async filePath => { try { await new Promise((resolve, reject) => pdfExtract.extract(filePath, {}, error => error ? reject(error) : resolve())); return true; } catch { return false; } };
-
-function createPersistenceQueue() {
-  let pending = Promise.resolve();
-  let firstError = null;
-  const enqueue = operation => {
-    pending = pending.then(operation).catch(error => { firstError ||= error; });
-    return pending;
-  };
-  const flush = async () => {
-    await pending;
-    if (firstError) throw firstError;
-  };
-  return { enqueue, flush };
+function sendError(reply, error) {
+  if (error instanceof ApplicationError) return reply.status(error.statusCode).send({ erro: error.message });
+  return reply.status(500).send({ erro: 'Erro interno no processamento do documento' });
 }
 
-/**
- * Registra as rotas da API HTTP no Fastify.
- * @param {import('fastify').FastifyInstance} fastify 
- */
-export async function transcriptionRoutes(fastify) {
-  // 5. GET /healthz - Endpoint de Healthcheck
-  fastify.get('/healthz', async (request, reply) => {
-    return reply.status(200).send({ status: 'ok' });
-  });
+function defer(work) {
+  if (process.env.VERCEL) waitUntil(work);
+  else setImmediate(() => { void work; });
+}
 
-  // 1. POST /api/transcricoes - Upload e disparo assíncrono de transcrição
+/** HTTP adapter. Business orchestration lives in TranscriptionUseCases. */
+export async function transcriptionRoutes(fastify, options) {
+  const transcription = options?.transcription;
+  if (!transcription) throw new Error('transcriptionRoutes requer os casos de uso de transcrição');
+
+  fastify.get('/healthz', async (_request, reply) => reply.status(200).send({ status: 'ok' }));
+
   fastify.post('/api/transcricoes', async (request, reply) => {
-    if (!request.isMultipart()) {
-      return reply.status(400).send({
-        erro: 'A requisição deve ser multipart/form-data'
-      });
+    if (!request.isMultipart()) return reply.status(400).send({ erro: 'A requisição deve ser multipart/form-data' });
+    let buffer = null; let name = 'upload.pdf'; let mimeType = ''; let type = null;
+    for await (const part of request.parts()) {
+      if (part.type === 'file' && part.fieldname === 'arquivo') { buffer = await part.toBuffer(); name = part.filename || name; mimeType = part.mimetype || ''; }
+      if (part.type === 'field' && part.fieldname === 'tipo') type = part.value;
     }
-
-    const parts = request.parts();
-    let fileBuffer = null;
-    let fileName = 'upload.pdf';
-    let tipo = null;
-    let mimeType = '';
-
-    for await (const part of parts) {
-      if (part.type === 'file') {
-        if (part.fieldname === 'arquivo') {
-          fileBuffer = await part.toBuffer();
-          fileName = part.filename || 'upload.pdf';
-          mimeType = part.mimetype || '';
-        }
-      } else if (part.type === 'field') {
-        if (part.fieldname === 'tipo') {
-          tipo = part.value;
-        }
-      }
-    }
-
-    // Validação dos parâmetros obrigatórios
-    if (tipo !== 'holerite') {
-      return reply.status(400).send({
-        erro: 'O parâmetro "tipo" é obrigatório e deve ser "holerite"'
-      });
-    }
-
-    if (!fileBuffer || fileBuffer.length === 0) {
-      return reply.status(400).send({
-        erro: 'O arquivo "arquivo" em formato PDF/imagem é obrigatório'
-      });
-    }
-
-    // Cria o trabalho de transcrição no estado 'processando'
-    if (mimeType !== 'application/pdf' || !fileBuffer.subarray(0, 5).equals(Buffer.from('%PDF-'))) {
-      return reply.status(400).send({ erro: 'O arquivo deve ser um PDF válido (MIME application/pdf e assinatura %PDF-).' });
-    }
-    const job = await transcriptionStore.createJob(tipo, { name: fileName, size: fileBuffer.length });
-    await transcriptionStore.saveDocument(job, fileBuffer);
-
-    // Salva o buffer no sistema de arquivos temporário do sistema operacional (fora da pasta do projeto)
-    const tempDir = os.tmpdir();
-    const tempFilePath = path.join(tempDir, `quick_filler_${job.id}.pdf`);
-    fs.writeFileSync(tempFilePath, fileBuffer);
-    if (!await isReadablePdf(tempFilePath)) {
-      fs.unlinkSync(tempFilePath);
-      return reply.status(400).send({ erro: 'O PDF está corrompido ou não pôde ser lido.' });
-    }
-
-    const processJob = async () => {
-      try {
-        for (let attempt = 0; attempt < 2; attempt++) {
-          try {
-            const persistence = createPersistenceQueue();
-            const onProgress = update => persistence.enqueue(() => transcriptionStore.updateJobProgress(job.id, update));
-            const onPageCompleted = result => persistence.enqueue(() => transcriptionStore.saveResult(job.id, result.resultKey, result));
-            const completedResultKeys = await transcriptionStore.getCompletedResultKeys(job.id);
-            const completedResults = await transcriptionStore.getCheckpointResults(job.id);
-            const parsedResult = await aiProviderService.parseDocument(tempFilePath, 'payroll', { onProgress, onPageCompleted, completedResultKeys, completedResults });
-            await persistence.flush();
-            await transcriptionStore.completeJob(job.id, parsedResult);
-            return;
-          } catch (error) {
-            request.log.error({ err: error, jobId: job.id, attempt: attempt + 1 }, 'Falha no processamento do documento');
-            if (attempt === 1) {
-              await transcriptionStore.failJob(job.id, error.message || 'Falha no processamento do documento');
-              return;
-            }
-            await transcriptionStore.updateJobProgress(job.id, {
-              message: 'Falha transitória; retomando páginas pendentes...',
-              log: 'A primeira tentativa falhou. Iniciando uma retomada limitada.'
-            });
-          }
-        }
-      } finally {
-        // Limpa o arquivo temporário
-        if (fs.existsSync(tempFilePath)) {
-          try {
-            fs.unlinkSync(tempFilePath);
-          } catch (_) {}
-        }
-      }
-    };
-
-    const processPromise = processJob();
-
-    if (process.env.VERCEL) {
-      waitUntil(processPromise);
-    } else {
-      setImmediate(() => processPromise);
-    }
-
-    // Retorna HTTP 202 Accepted imediatamente para que a interface possa fazer polling.
-    return reply.status(202).send({
-      id: job.id
-    });
-  });
-
-  fastify.get('/api/transcricoes', async (_request, reply) => {
-    return reply.send({ items: await transcriptionStore.listJobs() });
-  });
-
-  fastify.get('/api/transcricoes/:id/arquivo', async (request, reply) => {
-    const job = await transcriptionStore.getJob(request.params.id);
-    if (!job) return reply.status(404).send({ erro: 'Transcrição não encontrada' });
     try {
-      const content = await transcriptionStore.getDocument(job);
-      return reply.type('application/pdf').header('content-disposition', `inline; filename="${(job.fileName || 'documento.pdf').replaceAll('"', '')}"`).send(content);
-    } catch { return reply.status(404).send({ erro: 'PDF original não está mais disponível.' }); }
+      const job = await transcription.create({ type, file: { buffer, name, mimeType } });
+      defer(transcription.process(job.id, buffer));
+      return reply.status(202).send({ id: job.id });
+    } catch (error) { return sendError(reply, error); }
   });
 
-  fastify.post('/api/transcricoes/:id/retomar', async (request, reply) => {
-    const job = await transcriptionStore.getJob(request.params.id);
-    if (!job) return reply.status(404).send({ erro: 'Transcrição não encontrada' });
-    if (job.status === 'processando') return reply.status(202).send({ id: job.id, status: job.status });
-    let content;
-    try { content = await transcriptionStore.getDocument(job); } catch { return reply.status(409).send({ erro: 'O PDF original não está disponível para retomada.' }); }
-    const resumed = await transcriptionStore.startRetry(job.id);
-    const tempFilePath = path.join(os.tmpdir(), `quick_filler_${resumed.id}_resume.pdf`);
-    fs.writeFileSync(tempFilePath, content);
-    const processPromise = (async () => {
-      try {
-        const mapping = 'payroll';
-        const persistence = createPersistenceQueue();
-        const completedResultKeys = await transcriptionStore.getCompletedResultKeys(resumed.id);
-        const completedResults = await transcriptionStore.getCheckpointResults(resumed.id);
-        const result = await aiProviderService.parseDocument(tempFilePath, mapping, { completedResultKeys, completedResults, onProgress: update => persistence.enqueue(() => transcriptionStore.updateJobProgress(resumed.id, update)), onPageCompleted: item => persistence.enqueue(() => transcriptionStore.saveResult(resumed.id, item.resultKey, item)) });
-        await persistence.flush();
-        await transcriptionStore.completeJob(resumed.id, result);
-      } catch (error) { await transcriptionStore.failJob(resumed.id, error.message || 'Falha ao retomar auditoria'); }
-      finally { try { fs.unlinkSync(tempFilePath); } catch (_) {} }
-    })();
-    if (process.env.VERCEL) waitUntil(processPromise); else setImmediate(() => processPromise);
-    return reply.status(202).send({ id: resumed.id, status: 'processando' });
-  });
-
-  fastify.delete('/api/transcricoes/:id', async (request, reply) => {
-    const job = await transcriptionStore.deleteJob(request.params.id);
-    if (!job) return reply.status(404).send({ erro: 'Transcrição não encontrada' });
-    return reply.status(204).send();
-  });
-
-  // 2. GET /api/transcricoes/:id - Consulta de status e resultado
+  fastify.get('/api/transcricoes', async (_request, reply) => reply.send({ items: await transcription.list() }));
   fastify.get('/api/transcricoes/:id', async (request, reply) => {
-    const { id } = request.params;
-    const job = await transcriptionStore.getJob(id);
-
-    if (!job) {
-      return reply.status(404).send({
-        erro: 'Transcrição não encontrada'
-      });
-    }
-
-    return reply.status(200).send({
-      id: job.id,
-      tipo: job.tipo,
-      status: job.status,
-      progress: job.progress,
-      erro: job.erro,
-      value: job.value
-    });
+    try { const job = await transcription.get(request.params.id); return reply.send({ id: job.id, tipo: job.tipo, status: job.status, progress: job.progress, erro: job.erro, value: job.value }); }
+    catch (error) { return sendError(reply, error); }
   });
-
-  // 3. PUT /api/transcricoes/:id - Atualização da transcrição com edições da UI
+  fastify.get('/api/transcricoes/:id/arquivo', async (request, reply) => {
+    try { const { job, content } = await transcription.getDocument(request.params.id); return reply.type('application/pdf').header('content-disposition', `inline; filename="${(job.fileName || 'documento.pdf').replaceAll('"', '')}"`).send(content); }
+    catch (error) { if (error instanceof ApplicationError) return sendError(reply, error); return reply.status(404).send({ erro: 'PDF original não está mais disponível.' }); }
+  });
+  fastify.post('/api/transcricoes/:id/retomar', async (request, reply) => {
+    try { const { job, process } = await transcription.resume(request.params.id); if (process) defer(process); return reply.status(202).send({ id: job.id, status: job.status }); }
+    catch (error) { return sendError(reply, error); }
+  });
   fastify.put('/api/transcricoes/:id', async (request, reply) => {
-    const { id } = request.params;
-    const job = await transcriptionStore.getJob(id);
-
-    if (!job) {
-      return reply.status(404).send({
-        erro: 'Transcrição não encontrada'
-      });
-    }
-
-    const { value } = request.body || {};
-    if (!value) {
-      return reply.status(400).send({
-        erro: 'O corpo da requisição deve conter o objeto "value"'
-      });
-    }
-
-    const updatedJob = await transcriptionStore.updateJobValue(id, value);
-
-    return reply.status(200).send({
-      id: updatedJob.id,
-      status: updatedJob.status,
-      value: updatedJob.value
-    });
+    try { const job = await transcription.update(request.params.id, request.body?.value); return reply.send({ id: job.id, status: job.status, value: job.value }); }
+    catch (error) { return sendError(reply, error); }
   });
-
-  // 4. GET /api/transcricoes/:id/planilha - Download de planilha (xlsx/csv/json)
+  fastify.delete('/api/transcricoes/:id', async (request, reply) => {
+    try { await transcription.delete(request.params.id); return reply.status(204).send(); }
+    catch (error) { return sendError(reply, error); }
+  });
   fastify.get('/api/transcricoes/:id/planilha', async (request, reply) => {
-    const { id } = request.params;
-    const { formato = 'xlsx' } = request.query || {};
-
-    const job = await transcriptionStore.getJob(id);
-
-    if (!job) {
-      return reply.status(404).send({
-        erro: 'Transcrição não encontrada'
-      });
-    }
-
-    if (job.status !== 'concluido' || !job.value) {
-      return reply.status(422).send({
-        erro: 'A transcrição ainda não foi concluída com sucesso'
-      });
-    }
-
-    const exportData = await generateExport(job, formato);
-
-    reply.header('Content-Type', exportData.contentType);
-    reply.header('Content-Disposition', `attachment; filename="${exportData.filename}"`);
-    return reply.status(200).send(exportData.content);
+    try { const exportData = await transcription.export(request.params.id, request.query?.formato || 'xlsx'); return reply.header('Content-Type', exportData.contentType).header('Content-Disposition', `attachment; filename="${exportData.filename}"`).send(exportData.content); }
+    catch (error) { return sendError(reply, error); }
   });
 }

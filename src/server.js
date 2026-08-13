@@ -6,6 +6,9 @@ import dotenv from 'dotenv';
 import path from 'node:path';
 import fs from 'node:fs';
 import { transcriptionRoutes } from './routes/transcriptionRoutes.js';
+import { createDependencies } from './composition/createDependencies.js';
+import { BasicAuth } from './infrastructure/auth/basicAuth.js';
+import { authRoutes, requireAuthentication } from './routes/authRoutes.js';
 
 // Na Vercel as variáveis já chegam em process.env; carregar um .env ausente é
 // normal e não deve poluir os logs da Function.
@@ -34,8 +37,12 @@ export async function buildApp(opts = {}) {
     }
   });
 
-  // Registra as rotas da API HTTP
-  await app.register(transcriptionRoutes);
+  // Composition root: infrastructure is assembled here and injected into HTTP adapters.
+  const dependencies = opts.dependencies || createDependencies({ logger: app.log });
+  const auth = opts.auth || new BasicAuth();
+  await app.register(authRoutes, { auth });
+  app.addHook('onRequest', requireAuthentication(auth));
+  await app.register(transcriptionRoutes, { transcription: dependencies.transcription });
 
   // Serve arquivos estáticos da UI compilada em 'dist' (se o diretório existir)
   const distPath = path.resolve(process.cwd(), 'dist');

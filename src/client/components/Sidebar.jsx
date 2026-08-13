@@ -1,0 +1,2 @@
+import React from 'react';
+export function Sidebar({ screen, onNavigate, onLogout }) { return <aside className="sidebar"><div className="sidebar-brand">QUICK FILLER</div><nav className="sidebar-nav"><button className={screen === 'main' ? 'sidebar-link active' : 'sidebar-link'} onClick={() => onNavigate('main')}>Extração</button><button className={screen === 'saved' ? 'sidebar-link active' : 'sidebar-link'} onClick={() => onNavigate('saved')}>Salvos</button></nav><button className="sidebar-logout" onClick={onLogout}>Sair</button></aside>; }

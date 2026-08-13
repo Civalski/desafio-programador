@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 
-// Authentication is intentionally not implemented in this challenge deployment.
-// A static client/server password is not security and must never be used.
 export function LoginForm({ onLoginSuccess }) {
-  return <div className="login-container"><div className="login-card"><p>Autenticação não configurada.</p><button className="btn-upload" onClick={onLoginSuccess}>Continuar</button></div></div>;
+  const [username, setUsername] = useState(''); const [password, setPassword] = useState(''); const [error, setError] = useState(''); const [loading, setLoading] = useState(false);
+  const submit = async event => { event.preventDefault(); setLoading(true); setError(''); try { const response = await fetch('/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username, password }) }); const data = await response.json(); if (!response.ok) throw new Error(data.erro || 'Não foi possível iniciar a sessão.'); onLoginSuccess(); } catch (err) { setError(err.message); } finally { setLoading(false); } };
+  return <main className="login-container"><section className="login-card"><div className="login-header"><h1 className="login-title">Quick Filler</h1><p className="login-subtitle">Entre para acessar suas extrações.</p></div>{error && <p className="login-error-alert">{error}</p>}<form className="login-form" onSubmit={submit}><label className="form-group"><span className="form-label">Usuário</span><input className="login-input" autoComplete="username" value={username} onChange={event => setUsername(event.target.value)} required /></label><label className="form-group"><span className="form-label">Senha</span><input className="login-input" type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} required /></label><button className="btn-upload btn-login-submit" disabled={loading}>{loading ? 'Entrando...' : 'Entrar'}</button></form></section></main>;
 }
