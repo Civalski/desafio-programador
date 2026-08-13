@@ -10,6 +10,20 @@ import { PDFExtract } from 'pdf.js-extract';
 const pdfExtract = new PDFExtract();
 const isReadablePdf = async filePath => { try { await new Promise((resolve, reject) => pdfExtract.extract(filePath, {}, error => error ? reject(error) : resolve())); return true; } catch { return false; } };
 
+function createPersistenceQueue() {
+  let pending = Promise.resolve();
+  let firstError = null;
+  const enqueue = operation => {
+    pending = pending.then(operation).catch(error => { firstError ||= error; });
+    return pending;
+  };
+  const flush = async () => {
+    await pending;
+    if (firstError) throw firstError;
+  };
+  return { enqueue, flush };
+}
+
 /**
  * Registra as rotas da API HTTP no Fastify.
  * @param {import('fastify').FastifyInstance} fastify 
@@ -80,10 +94,12 @@ export async function transcriptionRoutes(fastify) {
     const processJob = async (automaticRetry = false) => {
       try {
         const docTypeMapping = 'payroll';
-        const onProgress = async (progUpdate) => transcriptionStore.updateJobProgress(job.id, progUpdate);
-        const onPageCompleted = async (page) => transcriptionStore.savePageResult(job.id, page.page, page);
+        const persistence = createPersistenceQueue();
+        const onProgress = progUpdate => persistence.enqueue(() => transcriptionStore.updateJobProgress(job.id, progUpdate));
+        const onPageCompleted = page => persistence.enqueue(() => transcriptionStore.savePageResult(job.id, page.page, page));
         const completedPageNumbers = await transcriptionStore.getCompletedPageNumbers(job.id);
         const parsedResult = await aiProviderService.parseDocument(tempFilePath, docTypeMapping, { onProgress, onPageCompleted, completedPageNumbers });
+        await persistence.flush();
 
         // Se o resultado for válido, conclui o job
         await transcriptionStore.completeJob(job.id, parsedResult);
@@ -143,8 +159,10 @@ export async function transcriptionRoutes(fastify) {
     const processPromise = (async () => {
       try {
         const mapping = 'payroll';
+        const persistence = createPersistenceQueue();
         const completedPageNumbers = await transcriptionStore.getCompletedPageNumbers(resumed.id);
-        const result = await aiProviderService.parseDocument(tempFilePath, mapping, { completedPageNumbers, onProgress: update => transcriptionStore.updateJobProgress(resumed.id, update), onPageCompleted: page => transcriptionStore.savePageResult(resumed.id, page.page, page) });
+        const result = await aiProviderService.parseDocument(tempFilePath, mapping, { completedPageNumbers, onProgress: update => persistence.enqueue(() => transcriptionStore.updateJobProgress(resumed.id, update)), onPageCompleted: page => persistence.enqueue(() => transcriptionStore.savePageResult(resumed.id, page.page, page)) });
+        await persistence.flush();
         await transcriptionStore.completeJob(resumed.id, result);
       } catch (error) { await transcriptionStore.failJob(resumed.id, error.message || 'Falha ao retomar auditoria'); }
       finally { try { fs.unlinkSync(tempFilePath); } catch (_) {} }
