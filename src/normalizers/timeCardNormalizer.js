@@ -67,3 +67,16 @@ export function normalizeTimeCardResponse(rawData) {
 
   return result;
 }
+
+/**
+ * Marks vision responses that lack the minimum evidence for a time-card page.
+ * The caller may request a second extraction pass only in local development.
+ */
+export function auditTimeCardPage(page = {}) {
+  const days = Array.isArray(page.days) ? page.days : [];
+  const punches = days.reduce((total, day) => total + (day.punches?.length || 0), 0);
+  const reasons = [];
+  if (!days.length) reasons.push('Nenhum dia identificado');
+  if (days.length && !punches) reasons.push('Nenhuma batida identificada');
+  return { needsReview: reasons.length > 0, reasons };
+}

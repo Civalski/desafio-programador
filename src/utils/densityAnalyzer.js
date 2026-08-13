@@ -57,3 +57,11 @@ export function selectExtractionStrategy(density, isFicha = false) {
   // Documentos densos (> 1500 chars e muitos elementos) usam 2 chamadas (Unified + Totais)
   return 'DUAL_PASS';
 }
+
+/**
+ * Time-card pages use vision only when their text layer is not usable.
+ */
+export function selectTimeCardExtractionStrategy(density = {}) {
+  if (density.isScanned || density.charCount < 50) return 'VISION_SINGLE_PASS';
+  return density.charCount > 2500 ? 'DUAL_PASS' : 'SINGLE_PASS';
+}
