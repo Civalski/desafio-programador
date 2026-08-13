@@ -86,7 +86,7 @@ function groupItemsIntoLines(items, yTolerance = 4) {
  * @returns {boolean}
  */
 export function detectFichaFinanceira(pdfPages) {
-  const MES_MARKER_REGEX = /^Mês\s*:\s*[a-z]{3,9}[\s\-]\d{2,4}\b/i;
+  const MES_MARKER_REGEX = /^M[eê]s\s*:\s*[a-záéíóúâêîôûãõçàèìòù]{3,9}[\s\-\/]\d{2,4}\b/i;
   let totalMarkers = 0;
 
   for (const page of pdfPages) {
@@ -121,7 +121,7 @@ export function detectFichaFinanceira(pdfPages) {
  * }>}
  */
 export function segmentMonthBlocks(pageItems, pageNum) {
-  const MES_MARKER_REGEX = /^Mês\s*:\s*([a-z]{3,9}[\s\-]\d{2,4})\b/i;
+  const MES_MARKER_REGEX = /^M[eê]s\s*:\s*([a-záéíóúâêîôûãõçàèìòù]{3,9}[\s\-\/]\d{2,4})\b/i;
   const lines = groupItemsIntoLines(pageItems);
 
   // Encontra todas as linhas-marcadores "Mês: xxx-YY" e suas posições Y
@@ -218,6 +218,23 @@ export function buildSpatialText(items) {
 
   const sortedY = Array.from(linesMap.keys()).sort((a, b) => a - b);
 
+  // Calcula gap adaptativo baseado na distribuição de espaços entre elementos:
+  // coleta todos os gaps, ordena e usa a mediana × 1.5 como limiar de separação de coluna.
+  // Isso evita o threshold fixo de 15px que colapsava colunas próximas em layouts densos.
+  const allGaps = [];
+  sortedY.forEach(y => {
+    const lineItems = linesMap.get(y).sort((a, b) => a.x - b.x);
+    for (let i = 1; i < lineItems.length; i++) {
+      const prev = lineItems[i - 1];
+      const curr = lineItems[i];
+      const gap = curr.x - (prev.x + (prev.width || 0));
+      if (gap > 0) allGaps.push(gap);
+    }
+  });
+  allGaps.sort((a, b) => a - b);
+  const medianGap = allGaps.length > 0 ? allGaps[Math.floor(allGaps.length / 2)] : 15;
+  const adaptiveGap = Math.max(10, Math.min(40, medianGap * 1.5));
+
   return sortedY.map(y => {
     const lineItems = linesMap.get(y).sort((a, b) => a.x - b.x);
     let lineStr = '';
@@ -226,7 +243,7 @@ export function buildSpatialText(items) {
         const prev = lineItems[i - 1];
         const curr = lineItems[i];
         const gap = curr.x - (prev.x + (prev.width || 0));
-        lineStr += gap > 15 ? '  |  ' : ' ';
+        lineStr += gap > adaptiveGap ? '  |  ' : ' ';
       }
       lineStr += lineItems[i].str;
     }
@@ -287,7 +304,11 @@ export function extractBlockDataLocal(blockItems) {
       const gap = xValues[i] - xValues[i - 1];
       if (gap > maxGap) {
         maxGap = gap;
-        splitX = (xValues[i - 1] + xValues[i]) / 2;
+        // A fronteira é o início da próxima coluna de códigos, não o ponto
+        // médio. Referência e valor da coluna esquerda ficam naturalmente
+        // depois do código e antes do próximo código; o ponto médio cortava o
+        // valor de Salário Base e o interpretava como referência.
+        splitX = xValues[i];
       }
     }
   }
@@ -349,8 +370,9 @@ export function extractBlockDataLocal(blockItems) {
       const code = clMatch[1].trim();
       const rawLabel = clMatch[2].trim();
 
-      // Filtra cabeçalhos e labels de rodapé
-      if (/^(TOT|TOTAL|BASE|VALOR|DIAS|HORAS|REM|SAL|CNPJ|EMP|CARGO|MÊS|FOLHA)/i.test(rawLabel)) continue;
+      // Filtra somente rótulos de resumo/cabeçalho. Prefixos genéricos como
+      // "SAL" removiam rubricas válidas, inclusive "Salário Base".
+      if (/^(?:TOT(?:AL)?(?:\s|\.|$)|BASE\s+DE\s+C[ÁA]LCULO|VALOR\s+(?:L[ÍI]QUIDO|DO\s+FGTS)|DIAS\/HORAS\s+TRAB(?:ALHADAS)?|REMUNERA[ÇC][ÃA]O\s+(?:DO\s+)?M[ÊE]S|CNPJ|EMPRESA|CARGO|M[ÊE]S|FOLHA\s+NORMAL)$/i.test(rawLabel)) continue;
       if (rawLabel.length < 2) continue;
 
       // Os demais items numéricos nesta coluna são: [ref, valor] ou só [valor]
@@ -380,5 +402,3 @@ export function extractBlockDataLocal(blockItems) {
 
   return { fields, bases, totals };
 }
-
-

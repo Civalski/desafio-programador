@@ -9,18 +9,50 @@ const DANGER_BORDER = 'DC3545';
 const csv = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
 
 function payrollRows(pages) {
-  const labels = new Map();
-  pages.forEach(p => (p.fields || []).forEach(f => { const label = String(f.label || f.description || '').trim(); if (label && !labels.has(normalizeLabelKey(label))) labels.set(normalizeLabelKey(label), label); }));
-  const headers = ['Pág.', 'Mês', 'Ano', ...labels.values()];
+  const columns = new Map();
+  const itemKey = (kind, item, property = 'value') => `${kind}:${normalizeLabelKey(item.label || item.description || '')}:${Number(item.occurrence || 1)}:${property}`;
+  const displayLabel = (item, suffix = '') => {
+    const label = String(item.label || item.description || '').trim();
+    const occurrence = Number(item.occurrence || 1);
+    const origin = occurrence > 1 ? ` — ocorrência ${occurrence}${item.sourcePage ? `/pág. ${item.sourcePage}` : ''}` : '';
+    return `${label}${suffix}${origin}`;
+  };
+  pages.forEach(page => {
+    (page.fields || []).forEach(field => {
+      if (!field.label) return;
+      columns.set(itemKey('field', field), displayLabel(field));
+      columns.set(itemKey('field', field, 'reference'), displayLabel(field, ' — Referência'));
+    });
+    (page.bases || []).forEach(base => {
+      if (base.label) columns.set(itemKey('base', base), displayLabel(base));
+    });
+  });
+  const headers = [
+    'Pág.', 'Mês', 'Ano', 'Empresa', 'CNPJ', 'Funcionário', 'CPF', 'Matrícula',
+    'Cargo', 'Departamento', 'Admissão', 'Banco', 'Agência', 'Conta', ...columns.values()
+  ];
   let priorReadable = null;
   const rows = pages.map((page, index) => {
     const readable = /^(0[1-9]|1[0-2])$/.test(String(page.month || '')) && /^\d{4}$/.test(String(page.year || ''));
     const danger = readable && priorReadable && isNonSequentialCompetency(priorReadable, page);
     if (readable) priorReadable = page;
-    const valuesByLabel = new Map((page.fields || []).map(f => [normalizeLabelKey(String(f.label || f.description || '').trim()), f.value || '']));
-    const values = [page.page || index + 1, page.month || '', page.year || '', ...Array.from(labels.keys()).map(k => valuesByLabel.get(k) || '')];
+    const valuesByColumn = new Map();
+    (page.fields || []).forEach(field => {
+      valuesByColumn.set(itemKey('field', field), field.value || '');
+      valuesByColumn.set(itemKey('field', field, 'reference'), field.reference || '');
+    });
+    (page.bases || []).forEach(base => valuesByColumn.set(itemKey('base', base), base.value || ''));
+    const values = [
+      page.page || index + 1, page.month || '', page.year || '',
+      page.company?.name || '', page.company?.cnpj || '',
+      page.employee?.name || '', page.employee?.cpf || '', page.employee?.registration || '',
+      page.employee?.role || '', page.employee?.department || '', page.employee?.admissionDate || '',
+      page.bankInfo?.bank || '', page.bankInfo?.agency || '', page.bankInfo?.account || '',
+      ...Array.from(columns.keys()).map(key => valuesByColumn.get(key) || '')
+    ];
     const empty = !(page.fields || []).length && !(page.bases || []).length && !page.month && !page.year;
-    return { values, warning: !danger && (empty || values.some(v => String(v).includes('?'))), danger };
+    const incomplete = page.extraction && page.extraction.valid === false;
+    return { values, warning: !danger && (empty || incomplete || values.some(v => String(v).includes('?'))), danger };
   });
   return { headers, rows };
 }

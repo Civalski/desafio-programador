@@ -34,7 +34,12 @@ export function unifyPayrollPages(pages = []) {
         month: month.padStart(2, '0'),
         fields: p.fields ? [...p.fields.map(f => ({ ...f }))] : [],
         bases: p.bases ? [...p.bases.map(b => ({ ...b }))] : [],
-        originalPages: [p.page]
+        originalPages: [p.page],
+        company: p.company || null,
+        employee: p.employee || null,
+        bankInfo: p.bankInfo || null,
+        paymentDate: p.paymentDate || null,
+        extraction: p.extraction || null
       });
     } else {
       const existing = grouped.get(key);
@@ -58,7 +63,10 @@ export function unifyPayrollPages(pages = []) {
           return false;
         });
 
-        if (match) {
+        const sameValue = match && String(match.value || '') === String(newField.value || '');
+        const sameReference = match && String(match.reference || '') === String(newField.reference || '');
+        const complementary = match && (isZeroVal(match.value) || isZeroVal(newField.value)) && (isZeroVal(match.reference) || isZeroVal(newField.reference) || sameReference);
+        if (match && ((sameValue && sameReference) || complementary)) {
           // Atualiza campos ausentes/zerados com dados da nova página
           if (isZeroVal(match.value) && newField.value && !isZeroVal(newField.value)) {
             match.value = newField.value;
@@ -72,7 +80,11 @@ export function unifyPayrollPages(pages = []) {
           // Propaga 'type' se ainda não está definido
           if (!match.type && newField.type) match.type = newField.type;
         } else {
-          existing.fields.push({ ...newField });
+          const occurrence = existing.fields.filter(f => {
+            const fCode = String(f.code || '').trim();
+            return (nCode && fCode === nCode) || (!nCode && normalizeLabelKey(f.label || '') === nLabelKey);
+          }).length + 1;
+          existing.fields.push({ ...newField, occurrence });
         }
       });
 
@@ -82,14 +94,20 @@ export function unifyPayrollPages(pages = []) {
         const nLabelKey = normalizeLabelKey(nLabel);
         const matchBase = existing.bases.find(b => normalizeLabelKey(String(b.label || '').trim()) === nLabelKey);
 
-        if (matchBase) {
+        if (matchBase && String(matchBase.value || '') === String(newBase.value || '')) {
           if (isZeroVal(matchBase.value) && newBase.value && !isZeroVal(newBase.value)) {
             matchBase.value = newBase.value;
           }
         } else {
-          existing.bases.push({ ...newBase });
+          const occurrence = existing.bases.filter(b => normalizeLabelKey(String(b.label || '')) === nLabelKey).length + 1;
+          existing.bases.push({ ...newBase, occurrence });
         }
       });
+
+      existing.company ||= p.company || null;
+      existing.employee ||= p.employee || null;
+      existing.bankInfo ||= p.bankInfo || null;
+      existing.paymentDate ||= p.paymentDate || null;
     }
   });
 
@@ -169,7 +187,12 @@ export function normalizePayrollResponse(rawData, options = {}) {
           label,
           reference,
           value: finalValue,
-          type: item.type || 'provento'  // preserva o campo 'type' vindo do prompt unificado
+          type: item.type || 'provento',
+          sourcePage: item.sourcePage ?? pageNum,
+          sourceRegion: item.sourceRegion ?? pageData.sourceRegion ?? pageData.blockIndex ?? null,
+          occurrence: item.occurrence ?? 1,
+          confidence: item.confidence ?? null,
+          evidenceType: item.evidenceType || 'ai'
         });
       }
     });
@@ -184,7 +207,16 @@ export function normalizePayrollResponse(rawData, options = {}) {
         // Evita duplicar bases que já foram extraídas via regex dos items
         const alreadyExists = bases.some(existing => existing.label.toLowerCase() === label.toLowerCase());
         if (!alreadyExists) {
-          bases.push({ label, value });
+          bases.push({
+            ...b,
+            label,
+            value,
+            sourcePage: b.sourcePage ?? pageNum,
+            sourceRegion: b.sourceRegion ?? pageData.sourceRegion ?? pageData.blockIndex ?? null,
+            occurrence: b.occurrence ?? 1,
+            confidence: b.confidence ?? null,
+            evidenceType: b.evidenceType || 'ai'
+          });
         }
       });
     }
@@ -211,7 +243,13 @@ export function normalizePayrollResponse(rawData, options = {}) {
       year,
       month,
       fields,
-      bases
+      bases,
+      paymentDate: pageData.paymentDate || null,
+      company: pageData.company || null,
+      employee: pageData.employee || null,
+      bankInfo: pageData.bankInfo || null,
+      sourceRegion: pageData.sourceRegion ?? pageData.blockIndex ?? null,
+      extraction: pageData.extraction || pageData.extractionValidation || null
     });
 
   });
@@ -223,6 +261,23 @@ export function normalizePayrollResponse(rawData, options = {}) {
 
   // Anexa a auditoria global sobre as competências extraídas
   result.audit = auditGlobalPayroll(result);
+  const extractionPages = result.pages.filter(page => page.extraction);
+  if (extractionPages.length) {
+    const extractionWarnings = extractionPages.flatMap(page => page.extraction.warnings || []);
+    result.audit = {
+      ...(result.audit || {}),
+      status: extractionWarnings.length ? 'review_required' : (result.audit?.status || 'ok'),
+      warnings: [...(result.audit?.warnings || []), ...extractionWarnings],
+      extractionMetrics: {
+        units: extractionPages.length,
+        plannedPrompts: extractionPages.reduce((sum, page) => sum + Number(page.extraction.plannedPrompts || 0), 0),
+        executedPrompts: extractionPages.reduce((sum, page) => sum + Number(page.extraction.executedPrompts || 0), 0),
+        expectedItems: extractionPages.reduce((sum, page) => sum + Number(page.extraction.expectedCount || 0), 0),
+        extractedItems: extractionPages.reduce((sum, page) => sum + Number(page.extraction.extractedCount || 0), 0),
+        strategies: [...new Set(extractionPages.map(page => page.extraction.strategy).filter(Boolean))]
+      }
+    };
+  }
 
   return result;
 }

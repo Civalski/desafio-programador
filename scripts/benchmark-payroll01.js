@@ -117,6 +117,7 @@ function normalizeGtBlock(raw) {
   // Bases auditadas
   const rawBases = raw.bases || (raw.folha_normal && raw.folha_normal.bases) || {};
   const bases = {
+    remuneracao_mes: parseNumber(rawBases.remuneracao_mes),
     dias_horas_trabalhadas: parseNumber(rawBases.dias_horas_trabalhadas),
     base_calculo_inss: parseNumber(rawBases.base_calculo_inss),
     base_calculo_irpf: parseNumber(rawBases.base_calculo_irpf),
@@ -287,6 +288,7 @@ export function runBenchmark(aiExtractionDTO, gtBlocks) {
     checkTotalOrBase('Base IRPF/IRRF', gt.bases.base_calculo_irpf, ['Base IRRF', 'Base IRPF', 'Base Calculo IRRF', 'Base de Calculo do IRF', 'Base de Calculo do IRRF']);
     checkTotalOrBase('Base FGTS', gt.bases.base_calculo_fgts, ['Base FGTS', 'Base Calculo FGTS', 'Base de Calculo do FGTS']);
     checkTotalOrBase('Valor FGTS', gt.bases.valor_fgts, ['Valor FGTS', 'FGTS do Mes', 'FGTS', 'Valor do FGTS']);
+    checkTotalOrBase('Remuneração do Mês', gt.bases.remuneracao_mes, ['Remuneração do Mês', 'Remuneracao Mes', 'Remuneração Mês']);
 
     monthReports.push(monthReport);
   });

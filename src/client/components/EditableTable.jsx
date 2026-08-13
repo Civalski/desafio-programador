@@ -132,6 +132,17 @@ export function EditableTable({ data, onChangeData }) {
           </div>
         </div>
 
+        {data.audit?.status === 'review_required' && (
+          <div className="audit-warning" role="alert" style={{ margin: '0 1rem 1rem', padding: '0.75rem 1rem', borderRadius: '8px', background: '#fff3cd', color: '#664d03', fontSize: '0.8rem' }}>
+            <strong>Revisão de cobertura necessária.</strong>{' '}
+            {(data.audit.warnings || []).slice(0, 3).join(' ')}
+            {(data.audit.warnings || []).length > 3 ? ` (+${data.audit.warnings.length - 3} alertas)` : ''}
+            {data.audit.extractionMetrics && (
+              <span> Cobertura: {data.audit.extractionMetrics.extractedItems}/{data.audit.extractionMetrics.expectedItems} itens; {data.audit.extractionMetrics.executedPrompts} prompts executados.</span>
+            )}
+          </div>
+        )}
+
         <div className="table-container">
           {viewMode === 'grid' ? (
             <div className="excel-grid-wrapper">

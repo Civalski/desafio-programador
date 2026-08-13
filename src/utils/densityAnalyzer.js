@@ -48,13 +48,9 @@ export function selectExtractionStrategy(density, isFicha = false) {
     return 'VISION_SINGLE_PASS';
   }
 
-  // Documentos pequenos/mÃ©dios ou simples (< 1500 chars ou < 180 elementos)
-  // podem ser extraÃ­dos perfeitamente com 1 Ãºnica chamada (Single-Pass)
-  if (density.charCount < 1500 || density.elementCount < 180 || density.isSparse) {
-    return 'SINGLE_PASS';
-  }
-
-  // Documentos densos (> 1500 chars e muitos elementos) usam 2 chamadas (Unified + Totais)
+  // Precisão primeiro: a antiga otimização SINGLE_PASS reduziu a cobertura em
+  // layouts aparentemente simples. Todo PDF textual usa verbas + rodapé em
+  // passes independentes; a densidade serve para segmentação, não para omitir passes.
   return 'DUAL_PASS';
 }
 

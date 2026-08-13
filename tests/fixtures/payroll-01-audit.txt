@@ -1,5 +1,5 @@
-{"cabecalho":{"mes_ano":"abr-17"},"itens":[]}
-{"cabecalho":{"mes_ano":"mai-17"},"itens":[]}
-{"cabecalho":{"mes_ano":"jun-17"},"itens":[]}
-{"cabecalho":{"mes_ano":"jul-17"},"itens":[]}
-{"cabecalho":{"mes_ano":"dez-17"},"itens":[]}
+{"cabecalho":{"mes_ano":"abr-17"},"itens":[{"codigo":"511","descricao":"INSS Normal","tipo":"desconto","valor":"100,85"}],"totais":{"total_rendimentos":"1.620,65","total_descontos":"228,10","salario_liquido":"1.392,55"},"bases":{"remuneracao_mes":"969,73","base_calculo_inss":"1.260,65","base_calculo_irpf":"780,62","base_calculo_fgts":"1.260,65","valor_fgts":"100,85"}}
+{"cabecalho":{"mes_ano":"mai-17"},"itens":[{"codigo":"511","descricao":"INSS Normal","tipo":"desconto","valor":"185,83"}],"totais":{"total_rendimentos":"2.064,79","total_descontos":"1.148,15","salario_liquido":"916,64"},"bases":{"remuneracao_mes":"1.454,59","base_calculo_inss":"2.064,79","base_calculo_irpf":"1.499,78","base_calculo_fgts":"2.064,79","valor_fgts":"165,18"}}
+{"cabecalho":{"mes_ano":"jun-17"},"itens":[{"codigo":"511","descricao":"INSS Normal","tipo":"desconto","valor":"190,52"}],"totais":{"total_rendimentos":"2.116,97","total_descontos":"1.361,94","salario_liquido":"755,03"},"bases":{"remuneracao_mes":"1.454,59","base_calculo_inss":"2.116,97","base_calculo_irpf":"1.547,27","base_calculo_fgts":"2.116,97","valor_fgts":"169,35"}}
+{"cabecalho":{"mes_ano":"jul-17"},"itens":[{"codigo":"511","descricao":"INSS Normal","tipo":"desconto","valor":"184,71"}],"totais":{"total_rendimentos":"2.058,31","total_descontos":"1.365,03","salario_liquido":"693,28"},"bases":{"remuneracao_mes":"1.454,59","base_calculo_inss":"2.052,44","base_calculo_irpf":"1.488,55","base_calculo_fgts":"2.052,44","valor_fgts":"164,19"}}
+{"cabecalho":{"mes_ano":"dez-17"},"itens":[{"codigo":"511","descricao":"INSS Normal","tipo":"desconto","valor":"240,90"}],"totais":{"total_rendimentos":"4.471,58","total_descontos":"3.159,58","salario_liquido":"1.312,00"},"bases":{"remuneracao_mes":"1.567,25","base_calculo_inss":"2.676,68","base_calculo_irpf":"2.056,60","base_calculo_fgts":"2.676,68","valor_fgts":"214,13"}}

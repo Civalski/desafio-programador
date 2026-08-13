@@ -12,6 +12,8 @@ test('Suíte de Benchmark - payroll-01.pdf vs Ground Truth Auditado', async () =
   const gtBlocks = parseGroundTruth(gtPath);
   assert.ok(Array.isArray(gtBlocks), 'Ground Truth deve ser uma array de blocos mensais');
   assert.equal(gtBlocks.length, 5, 'Ground Truth deve conter 5 meses auditados (04/17, 05/17, 06/17, 07/17, 12/17)');
+  assert.ok(gtBlocks.every(block => block.items.length > 0), 'Ground Truth não pode usar meses vazios que mascaram perda de verbas');
+  assert.ok(gtBlocks.every(block => block.bases.remuneracao_mes !== null), 'Ground Truth deve auditar remuneração mensal');
 
   // 2. Valida o motor sem fingir que houve uma extração da OpenAI.
   assert.ok(pdfPath.endsWith('holerite-1.pdf'));

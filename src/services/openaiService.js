@@ -14,54 +14,38 @@ const pdfExtract = new PDFExtract();
  * Isso garante que a data (mÃªs/ano) sempre viaje junto das verbas, evitando o bug
  * onde a competÃªncia desaparece ao mesclar mÃºltiplas pÃ¡ginas.
  */
-const PROMPT_UNIFIED = `VocÃª Ã© um especialista em OCR e estruturaÃ§Ã£o de Folhas de Pagamento (Holerites) brasileiros.
-Analise o texto desta pÃ¡gina de holerite e extraia:
-1. A COMPETÃŠNCIA (mÃªs e ano de referÃªncia do holerite) â€” OBRIGATÃ“RIO. Procure por textos como "CompetÃªncia:", "MÃªs/Ano:", "PerÃ­odo:", "ReferÃªncia:", ou padrÃµes como "05/2024".
-2. Os dados do FUNCIONÃRIO e EMPRESA (cabeÃ§alho).
+const PROMPT_UNIFIED = `Você é um especialista em OCR e estruturação de Folhas de Pagamento (Holerites) brasileiros.
+Analise o texto desta página de holerite e extraia:
+1. A COMPETÊNCIA (mês e ano de referência do holerite) — OBRIGATÓRIO. Procure por textos como "Competência:", "Mês/Ano:", "Período:", "Referência:", ou padrões como "05/2024".
+2. Os dados do FUNCIONÁRIO e EMPRESA (cabeçalho).
 3. TODAS as VERBAS da tabela principal (Proventos e Descontos), SEM OMITIR NENHUMA.
 
-REGRAS CRÃTICAS:
-- "competency.month" DEVE conter o nÃºmero do mÃªs (01-12) da folha de pagamento.
-- "competency.year" DEVE conter o ano com 4 dÃ­gitos (ex: 2024).
-- NÃƒO confunda data de admissÃ£o, emissÃ£o, nascimento ou pagamento com a competÃªncia.
-- Para cada verba em "fields": "reference" = quantidade/horas/percentual; "value" = valor monetÃ¡rio R$.
-- "type" de cada verba deve ser "provento" se Ã© crÃ©dito/adiÃ§Ã£o, ou "desconto" se Ã© dÃ©bito/subtraÃ§Ã£o.
-- NÃƒO inclua totais (Total Proventos, Total Descontos, Valor LÃ­quido) em "fields".
-- Se algum campo nÃ£o existir no documento, use null ou string vazia â€” NUNCA invente dados.
+ATENÇÃO — LAYOUT DE COLUNAS DUPLAS:
+- Holerites frequentemente têm DUAS colunas lado a lado: Proventos (esquerda) e Descontos (direita), separadas por espaço grande ou "|"
+- Leia as DUAS colunas integralmente. Uma verba da coluna direita NÃO é o valor da coluna esquerda.
+- Verbas com valor "0,00" são VÁLIDAS e devem ser incluídas — não as omita.
+- Cada linha da tabela com código numérico é uma verba independente.
+
+REGRAS CRÍTICAS:
+- "competency.month" DEVE conter o número do mês (01-12) da folha de pagamento.
+- "competency.year" DEVE conter o ano com 4 dígitos (ex: 2024).
+- NÃO confunda data de admissão, emissão, nascimento ou pagamento com a competência.
+- Para cada verba em "fields": "reference" = quantidade/horas/percentual; "value" = valor monetário R$.
+- "type" de cada verba deve ser "provento" se é crédito/adição, ou "desconto" se é débito/subtração.
+- NÃO inclua totais (Total Proventos, Total Descontos, Valor Líquido) em "fields".
+- Se algum campo não existir no documento, use null ou string vazia — NUNCA invente dados.
 
 Formato JSON estrito:
 {
-  "competency": {
-    "month": "MM",
-    "year": "YYYY",
-    "paymentDate": "DD/MM/YYYY ou null"
-  },
-  "company": {
-    "name": "Nome da Empresa",
-    "cnpj": "CNPJ ou null",
-    "branch": "Filial ou null"
-  },
+  "competency": { "month": "MM", "year": "YYYY", "paymentDate": "DD/MM/YYYY ou null" },
+  "company": { "name": "Nome da Empresa", "cnpj": "CNPJ ou null", "branch": "Filial ou null" },
   "employee": {
-    "name": "Nome do FuncionÃ¡rio",
-    "cpf": "CPF ou null",
-    "registration": "MatrÃ­cula ou null",
-    "role": "Cargo ou null",
-    "department": "Departamento ou null",
-    "admissionDate": "DD/MM/YYYY ou null"
+    "name": "Nome do Funcionário", "cpf": "CPF ou null", "registration": "Matrícula ou null",
+    "role": "Cargo ou null", "department": "Departamento ou null", "admissionDate": "DD/MM/YYYY ou null"
   },
-  "bankInfo": {
-    "bank": "Banco ou null",
-    "agency": "AgÃªncia ou null",
-    "account": "Conta ou null"
-  },
+  "bankInfo": { "bank": "Banco ou null", "agency": "Agência ou null", "account": "Conta ou null" },
   "fields": [
-    {
-      "code": "CÃ³digo numÃ©rico ou null",
-      "label": "DescriÃ§Ã£o exata da verba como aparece no documento",
-      "reference": "Qtd/Horas/Percentual ou null",
-      "value": "Valor monetÃ¡rio R$ (ex: 3.200,00)",
-      "type": "provento ou desconto"
-    }
+    { "code": "Código numérico ou null", "label": "Descrição exata da verba", "reference": "Qtd/Horas/% ou null", "value": "R$ (ex: 3.200,00)", "type": "provento ou desconto" }
   ]
 }`;
 
@@ -69,61 +53,77 @@ Formato JSON estrito:
  * PROMPT DE TOTAIS: Extrai exclusivamente rodapÃ© (totais, bases, encargos).
  * Explicitamente instruÃ­do a NÃƒO repetir itens que jÃ¡ sÃ£o verbas individuais.
  */
-const PROMPT_TOTALS = `VocÃª Ã© um especialista em OCR e estruturaÃ§Ã£o de Folhas de Pagamento (Holerites) brasileiros.
-Analise o texto desta pÃ¡gina e extraia APENAS os dados do RODAPÃ‰ da folha:
-1. Os totais consolidados (Total Proventos, Total Descontos, Valor LÃ­quido)
-2. As bases de cÃ¡lculo (Base INSS, Base IRRF, Base FGTS, FGTS do MÃªs etc.)
+const PROMPT_TOTALS = `Você é um especialista em OCR e estruturação de Folhas de Pagamento (Holerites) brasileiros.
+Analise o texto desta página e extraia APENAS os dados do RODAPÉ da folha:
+1. Os totais consolidados (Total Proventos, Total Descontos, Valor Líquido)
+2. As bases de cálculo (Base INSS, Base IRRF, Base FGTS, FGTS do Mês etc.)
 
-REGRAS CRÃTICAS:
-- NÃƒO inclua verbas individuais (ex: SalÃ¡rio Base, Vale Transporte, Horas Extras) â€” apenas totais e bases.
-- Se um item Ã© uma verba individual da tabela principal, IGNORE-O aqui.
-- "bases" deve conter APENAS linhas de rodapÃ© como: Base INSS, Base IRRF, Base FGTS, FGTS do MÃªs, AlÃ­quota IRRF.
-- Se um campo nÃ£o existir no documento, use null â€” NUNCA invente valores.
+REGRAS CRÍTICAS:
+- NÃO inclua verbas individuais (ex: Salário Base, Vale Transporte, Horas Extras) — apenas totais e bases.
+- Se um item é uma verba individual da tabela principal, IGNORE-O aqui.
+- "bases" deve conter APENAS linhas de rodapé como: Base INSS, Base IRRF, Base FGTS, FGTS do Mês, Alíquota IRRF.
+- Procure o rodapé no final da página, após a tabela de verbas.
+- Se um campo não existir no documento, use null — NUNCA invente valores.
 
 Formato JSON estrito:
 {
   "totals": {
     "totalAdditions": "Total de Proventos R$ ou null",
     "totalDeductions": "Total de Descontos R$ ou null",
-    "netValue": "Valor LÃ­quido R$ ou null"
+    "netValue": "Valor Líquido R$ ou null"
   },
   "bases": [
     { "label": "Nome exato da base (ex: Base INSS)", "value": "Valor R$" }
   ]
 }`;
 
-const PROMPT_FICHA_FINANCEIRA_BLOCK = `VocÃª Ã© um especialista em OCR e estruturaÃ§Ã£o de Fichas Financeiras e Holerites brasileiros.
-Analise o texto deste bloco mensal da Ficha Financeira e extraia TODAS as verbas (Proventos e Descontos), Totais e Bases de CÃ¡lculo.
+const PROMPT_FICHA_FINANCEIRA_BLOCK = `Você é um especialista em OCR e estruturação de Fichas Financeiras e Holerites brasileiros.
+Analise o texto deste bloco mensal da Ficha Financeira e extraia TODAS as verbas (Proventos e Descontos), Totais e Bases de Cálculo.
+
+ATENÇÃO — LAYOUT EM COLUNAS:
+A Ficha Financeira usa 2 a 3 colunas visuais. O texto pode aparecer assim:
+  "001 Salario Base  220,00  1.800,00 | 511 INSS Normal  11%  198,00"
+Nesse exemplo há DUAS verbas: código 001 (provento) e código 511 (desconto).
+O separador "|" ou espaço grande indica troca de coluna — leia AMBOS os lados.
+
+Antes de responder:
+1. Conte todos os códigos numéricos visíveis — esse é o número mínimo de itens em "fields".
+2. Percorra cada linha da esquerda para a direita, capturando TODAS as colunas.
+3. Inclua sempre Salário Base / Salário Mensal / Vencimento Base quando visível.
+4. REMUNERAÇÃO MÊS → retornar em "bases" com label "Remuneração do Mês".
+5. Verbas com valor "0,00" são VÁLIDAS — inclua-as.
+
+EXEMPLO DE ENTRADA:
+  "001 Salario Base  220,00  1.800,00 | 511 INSS Normal  11%  198,00"
+  "091 Hr Adic Pericul  146,67  290,92 | 040 Reembolso VR  1  150,00"
+EXEMPLO DE SAÍDA:
+{
+  "fields": [
+    {"code":"001","label":"Salario Base","reference":"220,00","value":"1.800,00","type":"provento"},
+    {"code":"511","label":"INSS Normal","reference":"11%","value":"198,00","type":"desconto"},
+    {"code":"091","label":"Hr Adic Pericul","reference":"146,67","value":"290,92","type":"provento"},
+    {"code":"040","label":"Reembolso VR","reference":"1","value":"150,00","type":"provento"}
+  ],
+  "bases": [{"label":"Remuneração do Mês","value":"2.090,92"}],
+  "totals": {"totalAdditions":"2.240,92","totalDeductions":"198,00","netValue":"2.042,92"}
+}
 
 ESTRUTURA JSON ESPERADA:
 {
   "fields": [
-    {
-      "code": "cÃ³digo da verba (ex: 001, 091, 511)",
-      "label": "descriÃ§Ã£o da verba (ex: SalÃ¡rio Base, Hr Adic Pericul, INSS Normal)",
-      "reference": "referÃªncia ou horas/dias/percentual (ex: 220,00, 146,67, 11%)",
-      "value": "valor monetÃ¡rio (ex: 1.620,65)",
-      "type": "provento" ou "desconto"
-    }
+    { "code": "código (ex: 001, 091, 511)", "label": "descrição (ex: Salário Base, Hr Adic Pericul, INSS Normal)", "reference": "horas/dias/% (ex: 220,00, 11%)", "value": "valor (ex: 1.620,65)", "type": "provento ou desconto" }
   ],
   "bases": [
-    {
-      "label": "nome da base ou valor de referÃªncia (ex: Base INSS, Base IRRF, Base FGTS, FGTS do MÃªs)",
-      "value": "valor monetÃ¡rio (ex: 1.260,65)"
-    }
+    { "label": "nome da base (ex: Base INSS, Base IRRF, Base FGTS, FGTS do Mês, Remuneração do Mês)", "value": "valor (ex: 1.260,65)" }
   ],
-  "totals": {
-    "totalAdditions": "Total Proventos / Rendimentos",
-    "totalDeductions": "Total Descontos",
-    "netValue": "Valor LÃ­quido no MÃªs"
-  }
+  "totals": { "totalAdditions": "Total Proventos", "totalDeductions": "Total Descontos", "netValue": "Valor Líquido" }
 }
 
 REGRAS:
-- Proventos (crÃ©ditos) devem ter "type": "provento".
-- Descontos (dÃ©bitos) devem ter "type": "desconto".
-- NÃƒO omita nenhuma verba do bloco.
-- NÃƒO invente dados.
+- Proventos (créditos) → "type": "provento". Descontos (débitos) → "type": "desconto".
+- NÃO omita nenhuma verba, incluindo as de colunas à direita.
+- Não resuma, não selecione apenas as principais verbas e não ignore itens com valor zero.
+- NÃO invente dados.
 `;
 
 /**
@@ -131,61 +131,43 @@ REGRAS:
  * Extrai identificaÃ§Ã£o + competÃªncia + verbas + totais + bases em 1 Ãºnica chamada API.
  * Usado para economizar 50% de tokens em documentos de densidade baixa/mÃ©dia.
  */
-const PROMPT_SINGLE_PASS = `VocÃª Ã© um especialista em OCR e estruturaÃ§Ã£o de Folhas de Pagamento (Holerites) brasileiros.
-Analise o texto desta pÃ¡gina de holerite e extraia TODOS os dados estruturados:
+const PROMPT_SINGLE_PASS = `Você é um especialista em OCR e estruturação de Folhas de Pagamento (Holerites) brasileiros.
+Analise o texto desta página de holerite e extraia TODOS os dados estruturados:
 
-1. COMPETÃŠNCIA (mÃªs e ano de referÃªncia) â€” OBRIGATÃ“RIO.
-2. DADOS DO FUNCIONÃRIO, EMPRESA E DADOS BANCÃRIOS.
+1. COMPETÊNCIA (mês e ano de referência) — OBRIGATÓRIO. Procure por "Competência:", "Mês/Ano:", "Período:", "Referência:" ou padrão "05/2024".
+2. DADOS DO FUNCIONÁRIO, EMPRESA E DADOS BANCÁRIOS.
 3. TODAS AS VERBAS da tabela principal (Proventos e Descontos), SEM OMITIR NENHUMA.
-4. TOTAIS DO RODAPÃ‰ (Total Proventos, Total Descontos, Valor LÃ­quido).
-5. BASES DE CÃLCULO (Base INSS, Base IRRF, Base FGTS, FGTS do MÃªs, etc.).
+4. TOTAIS DO RODAPÉ (Total Proventos, Total Descontos, Valor Líquido).
+5. BASES DE CÁLCULO (Base INSS, Base IRRF, Base FGTS, FGTS do Mês, etc.).
 
-REGRAS CRÃTICAS:
-- "competency.month" DEVE conter o mÃªs (01-12) e "competency.year" o ano com 4 dÃ­gitos (ex: 2024).
-- Para cada verba em "fields": "reference" = quantidade/horas/percentual; "value" = valor monetÃ¡rio R$.
+ATENÇÃO — LAYOUT DE COLUNAS DUPLAS:
+- Holerites frequentemente têm DUAS colunas lado a lado: Proventos (esquerda) e Descontos (direita).
+- Uma linha como "001 Salário Base 3.200,00 | 511 INSS 352,00" representa DUAS verbas distintas.
+- Leia as DUAS colunas. NÃO interprete o valor da coluna direita como referência da coluna esquerda.
+- Verbas com valor "0,00" são VÁLIDAS e devem ser incluídas — não as omita.
+- Conte os códigos numéricos visíveis: esse é o número mínimo de itens em "fields".
+
+REGRAS CRÍTICAS:
+- "competency.month" DEVE conter o mês (01-12) e "competency.year" o ano com 4 dígitos (ex: 2024).
+- NÃO confunda data de admissão, emissão, nascimento ou pagamento com a competência.
+- Para cada verba em "fields": "reference" = quantidade/horas/percentual; "value" = valor monetário R$.
 - "type" de cada verba deve ser "provento" ou "desconto".
-- NÃƒO inclua totais ou bases dentro do array "fields".
-- Se um campo nÃ£o existir, use null ou string vazia â€” NUNCA invente dados.
+- NÃO inclua totais ou bases dentro do array "fields".
+- Se um campo não existir, use null ou string vazia — NUNCA invente dados.
 
 Formato JSON estrito:
 {
-  "competency": {
-    "month": "MM",
-    "year": "YYYY",
-    "paymentDate": "DD/MM/YYYY ou null"
-  },
-  "company": {
-    "name": "Nome da Empresa",
-    "cnpj": "CNPJ ou null",
-    "branch": "Filial ou null"
-  },
+  "competency": { "month": "MM", "year": "YYYY", "paymentDate": "DD/MM/YYYY ou null" },
+  "company": { "name": "Nome da Empresa", "cnpj": "CNPJ ou null", "branch": "Filial ou null" },
   "employee": {
-    "name": "Nome do FuncionÃ¡rio",
-    "cpf": "CPF ou null",
-    "registration": "MatrÃ­cula ou null",
-    "role": "Cargo ou null",
-    "department": "Departamento ou null",
-    "admissionDate": "DD/MM/YYYY ou null"
+    "name": "Nome do Funcionário", "cpf": "CPF ou null", "registration": "Matrícula ou null",
+    "role": "Cargo ou null", "department": "Departamento ou null", "admissionDate": "DD/MM/YYYY ou null"
   },
-  "bankInfo": {
-    "bank": "Banco ou null",
-    "agency": "AgÃªncia ou null",
-    "account": "Conta ou null"
-  },
+  "bankInfo": { "bank": "Banco ou null", "agency": "Agência ou null", "account": "Conta ou null" },
   "fields": [
-    {
-      "code": "CÃ³digo numÃ©rico ou null",
-      "label": "DescriÃ§Ã£o exata da verba",
-      "reference": "Qtd/Horas/Percentual ou null",
-      "value": "Valor monetÃ¡rio R$",
-      "type": "provento ou desconto"
-    }
+    { "code": "Código numérico ou null", "label": "Descrição exata da verba", "reference": "Qtd/Horas/% ou null", "value": "Valor R$", "type": "provento ou desconto" }
   ],
-  "totals": {
-    "totalAdditions": "Total Proventos R$ ou null",
-    "totalDeductions": "Total Descontos R$ ou null",
-    "netValue": "Valor LÃ­quido R$ ou null"
-  },
+  "totals": { "totalAdditions": "Total Proventos R$ ou null", "totalDeductions": "Total Descontos R$ ou null", "netValue": "Valor Líquido R$ ou null" },
   "bases": [
     { "label": "Nome exato da base (ex: Base INSS)", "value": "Valor R$" }
   ]
@@ -223,6 +205,45 @@ export function validateFichaExtraction(rawText, parsed = {}) {
   if (expectsBases && !hasBases) warnings.push('Bases visíveis no bloco não foram extraídas.');
   return { valid: coverage >= 0.8 && (!expectsTotals || hasTotals) && (!expectsBases || hasBases), coverage, missingCodes, warnings };
 }
+
+/**
+ * Tenta inferir a competência (mês/ano) a partir do texto bruto da página usando padrões comuns.
+ * Usado como fallback quando a IA não retorna month/year identificáveis.
+ *
+ * @param {string} text  Texto bruto da página (com layout espacial preservado)
+ * @returns {{ month: string, year: string } | null}
+ */
+export function inferCompetencyFromText(text) {
+  if (!text || typeof text !== 'string') return null;
+
+  const patterns = [
+    // "Competência: 05/2024" ou "Competência: 05/24"
+    /compet[eê]ncia\s*[:\-]?\s*(0?[1-9]|1[0-2])[\/\-](20\d{2}|\d{2})/i,
+    // "Período: 05/2024"
+    /per[íi]odo\s*[:\-]?\s*(0?[1-9]|1[0-2])[\/\-](20\d{2}|\d{2})/i,
+    // "Mês/Ano: 05/2024" ou "Mês/Ano: 05/24"
+    /m[eê]s[\/\-]?ano\s*[:\-]?\s*(0?[1-9]|1[0-2])[\/\-](20\d{2}|\d{2})/i,
+    // "Referência: 05/2024"
+    /refer[eê]ncia\s*[:\-]?\s*(0?[1-9]|1[0-2])[\/\-](20\d{2}|\d{2})/i,
+    // Padrão numérico solto "05/2024" — precedido por espaço ou início de linha, 4 dígitos no ano
+    /(?:^|\s)(0[1-9]|1[0-2])\/(20\d{2})(?:\s|$)/m,
+  ];
+
+  for (const pattern of patterns) {
+    const m = text.match(pattern);
+    if (m) {
+      let month = m[1].padStart(2, '0');
+      let year = m[2].length === 2 ? `20${m[2]}` : m[2];
+      const monthNum = parseInt(month, 10);
+      const yearNum = parseInt(year, 10);
+      if (monthNum >= 1 && monthNum <= 12 && yearNum >= 1990 && yearNum <= 2100) {
+        return { month, year };
+      }
+    }
+  }
+  return null;
+}
+
 export class OpenAIService {
   constructor(apiKey = config.openaiApiKey) {
     this.apiKey = apiKey;
@@ -558,11 +579,21 @@ export class OpenAIService {
                 unifiedData = uData || {};
                 totalsData = tData || {};
               }
-              // LÃª competÃªncia do formato novo (competency.month/year)
+              // Lê competência do formato novo (competency.month/year)
               const competency = unifiedData.competency || {};
-              const month = competency.month || unifiedData.month || '';
-              const year = competency.year || unifiedData.year || '';
+              let month = competency.month || unifiedData.month || '';
+              let year = competency.year || unifiedData.year || '';
               const paymentDate = competency.paymentDate || unifiedData.paymentDate || null;
+
+              // Fallback: se a IA não identificou a competência, tenta inferir do texto bruto
+              if ((!month || !year) && !isVision && pageObj.text) {
+                const inferred = inferCompetencyFromText(pageObj.text);
+                if (inferred) {
+                  month = month || inferred.month;
+                  year = year || inferred.year;
+                  console.log(`📅 Página ${pageObj.pageNum}: competência inferida localmente → ${month}/${year}`);
+                }
+              }
 
               // Normaliza fields para garantir campo 'type'
               const fields = (unifiedData.fields || []).map(f => ({

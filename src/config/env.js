@@ -8,10 +8,16 @@ const __dirname = path.dirname(__filename);
 
 // Carrega .env do diretório atual e do diretório pai se existir
 const environment = process.env.APP_ENV || (process.env.VERCEL ? 'production' : 'development');
+const localEnvPath = path.resolve(process.cwd(), '.env.local');
 const developmentEnvPath = path.resolve(process.cwd(), '.env.development');
 
-if (environment === 'development' && fs.existsSync(developmentEnvPath)) {
-  dotenv.config({ path: developmentEnvPath });
+if (environment === 'development') {
+  if (fs.existsSync(localEnvPath)) {
+    dotenv.config({ path: localEnvPath });
+  }
+  if (fs.existsSync(developmentEnvPath)) {
+    dotenv.config({ path: developmentEnvPath });
+  }
 }
 
 export const config = {
