@@ -24,8 +24,8 @@ export const config = {
   environment,
   isProduction: environment === 'production',
   openaiApiKey: process.env.OPENAI_API_KEY || process.env.OPENAI_SECRET_KEY || '',
-  openaiPayrollModel: process.env.OPENAI_PAYROLL_MODEL || 'gpt-5.6-sol',
-  openaiPayrollFallbackModel: process.env.OPENAI_PAYROLL_FALLBACK_MODEL || 'gpt-4o',
+  openaiPayrollModel: process.env.OPENAI_PAYROLL_MODEL || 'gpt-5.6-luna',
+  openaiPayrollFallbackModel: process.env.OPENAI_PAYROLL_FALLBACK_MODEL || 'gpt-5.6-sol',
   visionScale: Number(process.env.OPENAI_VISION_SCALE || 2),
   dataInputDir: process.env.DATA_INPUT_DIR 
     ? path.resolve(process.env.DATA_INPUT_DIR)
