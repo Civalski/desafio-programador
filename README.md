@@ -2,6 +2,25 @@
 
 Aplicação web para extrair dados de holerites em PDF, revisar a transcrição ao lado do documento e exportar uma planilha corrigida.
 
+## Arquitetura
+
+```mermaid
+flowchart LR
+    U[Usuário] --> UI[React + Vite\nInterface de revisão]
+    UI -->|upload, consulta e edição| API[Fastify API\nVercel]
+    API -->|cria job e salva PDF| STATE[State Worker\nCloudflare Workers]
+    STATE --> D1[(Cloudflare D1\njobs e resultados por página)]
+    STATE --> R2[(Cloudflare R2\nPDFs originais)]
+    API -->|processamento assíncrono| PIPE[Pipeline de extração]
+    PIPE -->|PDF com texto| LOCAL[Extrator local\nsegmentação e normalização]
+    PIPE -->|PDF escaneado ou Vision| AI[OpenAI API]
+    LOCAL --> STATE
+    AI --> STATE
+    STATE -->|status e resultado| API
+    API -->|polling e exportação XLSX/CSV/JSON| UI
+    CRON[Worker Cron\ndiário] -->|remove dados expirados| STATE
+```
+
 ## Fluxo
 
 `enviar holerite → processar em segundo plano → revisar → baixar XLSX, CSV ou JSON`
