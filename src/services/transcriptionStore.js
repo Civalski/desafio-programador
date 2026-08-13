@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
-const dataDir = path.resolve(process.cwd(), 'data');
+// Vercel permite escrita apenas em /tmp; localmente mantemos o banco no projeto.
+const dataDir = process.env.VERCEL ? path.join(os.tmpdir(), 'quick-filler') : path.resolve(process.cwd(), 'data');
 fs.mkdirSync(dataDir, { recursive: true });
 const db = new DatabaseSync(path.join(dataDir, 'quick-filler.db'));
 db.exec(`
