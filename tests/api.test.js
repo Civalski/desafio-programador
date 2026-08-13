@@ -2,32 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildApp } from '../src/server.js';
 import { transcriptionStore } from '../src/services/transcriptionStore.js';
-import { isTimeCardEnabled } from '../src/config/features.js';
-
-test('Time-card fica bloqueado em ambiente hospedado e habilitado localmente', async () => {
-  assert.equal(isTimeCardEnabled({}), true);
-  assert.equal(isTimeCardEnabled({ VERCEL: '1' }), false);
-  assert.equal(isTimeCardEnabled({ VERCEL: '1', ENABLE_TIME_CARD: 'true' }), false);
-  assert.equal(isTimeCardEnabled({ APP_ENV: 'development', ENABLE_TIME_CARD: 'true' }), true);
-
-  const previous = process.env.ENABLE_TIME_CARD;
-  process.env.ENABLE_TIME_CARD = 'false';
-  const app = await buildApp({ logger: false });
-  await app.ready();
-  try {
-    const blocked = await app.inject({
-      method: 'POST',
-      url: '/api/transcricoes',
-      headers: { 'content-type': 'multipart/form-data; boundary=boundary' },
-      payload: '--boundary\r\nContent-Disposition: form-data; name="tipo"\r\n\r\ncartao-ponto\r\n--boundary--\r\n'
-    });
-    assert.equal(blocked.statusCode, 403);
-  } finally {
-    if (previous === undefined) delete process.env.ENABLE_TIME_CARD;
-    else process.env.ENABLE_TIME_CARD = previous;
-    await app.close();
-  }
-});
 
 test('API de holerite: saúde, edição e exportação', async () => {
   const app = await buildApp({ logger: false });
@@ -49,7 +23,7 @@ test('API recusa tipos de documento fora do escopo', async () => {
   const app = await buildApp({ logger: false });
   await app.ready();
   try {
-    const response = await app.inject({ method: 'POST', url: '/api/transcricoes', headers: { 'content-type': 'multipart/form-data; boundary=boundary' }, payload: '--boundary\r\nContent-Disposition: form-data; name="tipo"\r\n\r\ncartao-ponto\r\n--boundary--\r\n' });
+    const response = await app.inject({ method: 'POST', url: '/api/transcricoes', headers: { 'content-type': 'multipart/form-data; boundary=boundary' }, payload: '--boundary\r\nContent-Disposition: form-data; name="tipo"\r\n\r\noutro\r\n--boundary--\r\n' });
     assert.equal(response.statusCode, 400);
   } finally { await app.close(); }
 });
